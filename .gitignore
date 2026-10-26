@@ -1,0 +1,28 @@
+# build
+build/
+.gradle/
+out/
+*.class
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# secrets: 키는 환경변수로만 읽는다 (CLAUDE.md 규칙 2)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# 실제 시세 캡처 금지 (CLAUDE.md 규칙 3)
+captures/
+market-data/
+*.capture
+*.pcap
+*.har
+*.tick
