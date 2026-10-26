@@ -1,0 +1,21 @@
+# 로컬 개발용 PostgreSQL 16. 계정은 .env 에서 읽는다(값이 없으면 시작하지 않는다).
+services:
+  postgres:
+    image: postgres:16
+    container_name: futures-risk-ops-db
+    environment:
+      POSTGRES_DB: futures_risk_ops
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER 를 .env 에 넣는다}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 넣는다}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d futures_risk_ops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

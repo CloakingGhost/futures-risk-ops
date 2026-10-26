@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: collector
+  datasource:
+    url: jdbc:postgresql://localhost:5432/futures_risk_ops
+    # DB 계정도 코드에 두지 않는다. 환경변수가 없으면 시작할 때 실패한다.
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
