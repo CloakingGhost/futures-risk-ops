@@ -108,7 +108,7 @@ docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d futures_risk_ops
 
 ### 7. KIS 연결: 모의투자 먼저, 그다음 실전
 
-`.env`의 `KIS_APP_KEY`, `KIS_APP_SECRET`은 지금 쓰는 쪽(모의투자 또는 실전)의 값이어야 한다. 모의투자 키로 실전 서버에 붙거나 그 반대로 붙으면 접속키 발급에서 거절된다. 환경변수를 불러온 터미널에서:
+프로필마다 읽는 환경변수가 다르다. 실전(`kis`)은 `KIS_APP_KEY`, `KIS_APP_SECRET`, 모의투자(`kis-paper`)는 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET`이다. 두 쌍을 `.env`에 같이 두고 프로필만 바꿔도 키가 섞이지 않는다. 환경변수를 불러온 터미널에서:
 
 ```bash
 # 모의투자 (먼저)

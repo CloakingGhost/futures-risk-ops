@@ -10,7 +10,7 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 아래 다섯 가지는 사용자가 요청해도 어기지 않는다. 요청이 규칙과 부딪히면 코드를 만들지 말고 어떤 규칙 때문인지 알려준다.
 
 1. **주문 API 호출 코드를 만들지 않는다.** 주문·정정·취소·예약주문 등 주문 성격의 TR·엔드포인트(이름이나 URL에 order·주문이 들어가는 것 포함)를 부르는 코드, 그런 메서드를 가진 클라이언트 클래스를 만들지 않는다. 이 저장소는 시세를 읽고 계산만 한다.
-2. **키는 환경변수로만 읽는다.** 앱키·시크릿 등 인증 값은 환경변수 `KIS_APP_KEY`, `KIS_APP_SECRET` 에서만 읽는다(collector `KisApprovalKeyClient` 에서 확정).
+2. **키는 환경변수로만 읽는다.** 앱키·시크릿 등 인증 값은 환경변수에서만 읽는다. 실전은 `KIS_APP_KEY`, `KIS_APP_SECRET`, 모의투자는 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` 이다(프로필이 읽을 환경변수 이름을 정하고, collector `KisApprovalKeyClient` 가 읽는다).
    - 코드, `application.yml`·`*.properties`, 테스트, 문서, 커밋 메시지, 로그, 예외 메시지에 값을 쓰지 않는다. 기본값도 두지 않고, 없으면 시작 단계에서 분명한 오류로 실패한다.
    - `.env` 는 커밋하지 않는다(`.gitignore`). 필요하면 값이 없는 `.env.example` 만 둔다.
    - DB 계정(`POSTGRES_USER`, `POSTGRES_PASSWORD`)도 같은 방식으로 환경변수에서만 읽는다.

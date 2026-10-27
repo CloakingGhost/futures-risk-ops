@@ -1,4 +1,4 @@
-# KIS 실전 연결. 앱키·시크릿은 환경변수 KIS_APP_KEY, KIS_APP_SECRET 에서만 읽는다(없으면 시작할 때 실패).
+# KIS 실전 연결. 앱키·시크릿은 환경변수 KIS_APP_KEY, KIS_APP_SECRET 에서만 읽는다(없으면 시작할 때 실패). 모의투자 값(KIS_PAPER_*)과 섞이지 않는다.
 # 웹소켓·REST 도메인은 공식 샘플 kis_devlp.yaml 의 ops·prod 값이다. 모의투자는 application-kis-paper.yml.
 # 구독 키(tr_key)가 REST 의 A01612 형식과 같은지는 야간장 실체결로 확인한다. 다르면 symbols 만 바꾼다.
 # 받은 실제 시세는 로컬 DB 에만 쌓인다. 캡처 파일이 필요하면 local-data/ 에만 둔다.

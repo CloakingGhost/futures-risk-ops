@@ -30,7 +30,8 @@ class KisApprovalKeyClientTest {
     void postsAppKeyAndSecretAndCachesTheApprovalKey() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"approval_key\":\"dummy-approval\"}"));
         server.start();
-        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env);
+        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env, "KIS_APP_KEY",
+                "KIS_APP_SECRET");
 
         assertEquals("dummy-approval", client.approvalKey());
         assertEquals("dummy-approval", client.approvalKey());
@@ -47,16 +48,40 @@ class KisApprovalKeyClientTest {
 
     @Test
     void failsAtStartWithoutEnvironmentVariables() {
-        IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> new KisApprovalKeyClient(new OkHttpClient(), "http://127.0.0.1:1", Map.of()));
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> new KisApprovalKeyClient(
+                new OkHttpClient(), "http://127.0.0.1:1", Map.of(), "KIS_APP_KEY", "KIS_APP_SECRET"));
         assertTrue(e.getMessage().contains("KIS_APP_KEY"));
+    }
+
+    @Test
+    void paperNamesReadOnlyThePaperVariablesAndNeverTheRealOnes() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"approval_key\":\"dummy-approval\"}"));
+        server.start();
+        Map<String, String> both = Map.of("KIS_APP_KEY", "real-key", "KIS_APP_SECRET", "real-secret",
+                "KIS_PAPER_APP_KEY", "paper-key", "KIS_PAPER_APP_SECRET", "paper-secret");
+        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), both,
+                "KIS_PAPER_APP_KEY", "KIS_PAPER_APP_SECRET");
+        client.approvalKey();
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest().getBody().readUtf8());
+        assertEquals("paper-key", body.path("appkey").asText());
+        assertEquals("paper-secret", body.path("secretkey").asText());
+    }
+
+    @Test
+    void aMissingPaperVariableFailsNamingThePaperVariableEvenWhenTheRealOnesExist() {
+        Map<String, String> onlyReal = Map.of("KIS_APP_KEY", "real-key", "KIS_APP_SECRET", "real-secret");
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> new KisApprovalKeyClient(
+                new OkHttpClient(), "http://127.0.0.1:1", onlyReal, "KIS_PAPER_APP_KEY", "KIS_PAPER_APP_SECRET"));
+        assertTrue(e.getMessage().contains("KIS_PAPER_APP_KEY"));
+        assertFalse(e.getMessage().contains("real-key"));
     }
 
     @Test
     void httpErrorsDoNotLeakTheSecret() throws Exception {
         server.enqueue(new MockResponse().setResponseCode(403).setBody("forbidden"));
         server.start();
-        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env);
+        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env, "KIS_APP_KEY",
+                "KIS_APP_SECRET");
         IllegalStateException e = assertThrows(IllegalStateException.class, client::approvalKey);
         assertTrue(e.getMessage().contains("403"));
         assertFalse(e.getMessage().contains("dummy-secret"));

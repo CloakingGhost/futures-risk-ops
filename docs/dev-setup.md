@@ -12,7 +12,10 @@
 
 | 이름 | 쓰는 곳 |
 |---|---|
-| `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS API (시뮬레이터는 필요 없음) |
+| `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS 실전 API (`kis` 프로필) |
+| `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` | KIS 모의투자 API (`kis-paper` 프로필) |
+
+시뮬레이터는 키가 필요 없다.
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | docker compose 와 collector |
 
 `docker compose` 는 `.env` 를 자동으로 읽는다. Gradle 과 스프링은 읽지 않으므로 같은 터미널에서 환경변수로 넣는다.
@@ -60,7 +63,7 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 ```
 
 - 도메인(공식 샘플 `kis_devlp.yaml`): 모의투자 웹소켓 `ws://ops.koreainvestment.com:31000`, REST `https://openapivts.koreainvestment.com:29443` / 실전 웹소켓 `:21000`, REST `https://openapi.koreainvestment.com:9443`. 접속키는 `/oauth2/Approval` 로 받는다.
-- `KIS_APP_KEY`, `KIS_APP_SECRET` 은 선택한 쪽의 값이어야 한다. 없으면 시작할 때 실패한다.
+- 프로필마다 읽는 환경변수가 다르다. `kis` 는 `KIS_APP_KEY`/`KIS_APP_SECRET`, `kis-paper` 는 `KIS_PAPER_APP_KEY`/`KIS_PAPER_APP_SECRET` 이라, 두 쌍을 `.env` 에 같이 두고 프로필만 바꿔도 된다. 쓰는 쪽 값이 없으면 시작할 때 그 환경변수 이름을 알려 주며 실패한다.
 - 구독 키(`tr_key`)가 `A01612` 형식으로 되는지 확인한다. 안 되면 `--collector.symbols=<다른 형식>` 으로 바꿔 본다.
 - 받은 시세는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
 

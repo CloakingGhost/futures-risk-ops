@@ -22,6 +22,9 @@ collector:
   approval:
     mode: NONE
     rest-base-url: https://openapi.koreainvestment.com:9443
+    # 환경변수 '이름'이다(값이 아니다). 실전은 이 이름을 쓰고, 모의투자 프로필은 KIS_PAPER_* 로 바꾼다.
+    app-key-env: KIS_APP_KEY
+    app-secret-env: KIS_APP_SECRET
   batch:
     queue-capacity: 100000
     max-size: 500

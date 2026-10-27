@@ -14,13 +14,12 @@ import okhttp3.Response;
  * KIS {@code POST /oauth2/Approval} 로 웹소켓 접속키를 받는다.
  *
  * <p>요청 본문은 공식 샘플(kis_auth.py)과 같은 {@code grant_type, appkey, secretkey} 다(가정: 샘플 기준, 문서로 재확인 필요).
- * 앱키·시크릿은 환경변수 {@code KIS_APP_KEY}, {@code KIS_APP_SECRET} 에서만 읽고, 로그·예외 메시지에 넣지 않는다.
+ * 앱키·시크릿은 환경변수에서만 읽고(이름은 프로필마다 설정: 실전 {@code KIS_APP_KEY}/{@code KIS_APP_SECRET},
+ * 모의투자 {@code KIS_PAPER_APP_KEY}/{@code KIS_PAPER_APP_SECRET}), 로그·예외 메시지에 값을 넣지 않는다. 메시지에는 환경변수 이름만 쓴다.
  * 받은 접속키는 메모리에만 두고 프로세스가 살아 있는 동안 다시 쓴다.
  */
 public final class KisApprovalKeyClient implements ApprovalKeyProvider {
 
-    public static final String ENV_APP_KEY = "KIS_APP_KEY";
-    public static final String ENV_APP_SECRET = "KIS_APP_SECRET";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     private final OkHttpClient http;
@@ -30,18 +29,23 @@ public final class KisApprovalKeyClient implements ApprovalKeyProvider {
     private final ObjectMapper json = new ObjectMapper();
     private volatile String cached;
 
-    /** @param env 보통 {@code System.getenv()}. 키가 없으면 여기서 바로 실패한다 */
-    public KisApprovalKeyClient(OkHttpClient http, String restBaseUrl, Map<String, String> env) {
+    /**
+     * @param env          보통 {@code System.getenv()}
+     * @param appKeyEnv    앱키를 담은 환경변수 이름. 없거나 비어 있으면 여기서 바로 실패한다
+     * @param appSecretEnv 시크릿을 담은 환경변수 이름
+     */
+    public KisApprovalKeyClient(OkHttpClient http, String restBaseUrl, Map<String, String> env, String appKeyEnv,
+                                String appSecretEnv) {
         this.http = http;
         this.restBaseUrl = restBaseUrl.endsWith("/") ? restBaseUrl.substring(0, restBaseUrl.length() - 1) : restBaseUrl;
-        this.appKey = required(env, ENV_APP_KEY);
-        this.appSecret = required(env, ENV_APP_SECRET);
+        this.appKey = required(env, appKeyEnv);
+        this.appSecret = required(env, appSecretEnv);
     }
 
     private static String required(Map<String, String> env, String name) {
         String v = env.get(name);
         if (v == null || v.isBlank()) {
-            throw new IllegalStateException("environment variable " + name + " is required for collector.approval.mode=KIS");
+            throw new IllegalStateException("environment variable " + name + " is required for collector.approval.mode=KIS (set in the terminal that runs the collector)");
         }
         return v.trim();
     }

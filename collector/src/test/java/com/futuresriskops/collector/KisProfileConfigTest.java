@@ -26,6 +26,8 @@ class KisProfileConfigTest {
         assertEquals("https://openapivts.koreainvestment.com:29443", p.getProperty("collector.approval.rest-base-url"));
         assertEquals("KIS", p.getProperty("collector.approval.mode"));
         assertEquals("KIS", p.getProperty("collector.source"));
+        assertEquals("KIS_PAPER_APP_KEY", p.getProperty("collector.approval.app-key-env"));
+        assertEquals("KIS_PAPER_APP_SECRET", p.getProperty("collector.approval.app-secret-env"));
     }
 
     @Test
@@ -35,5 +37,9 @@ class KisProfileConfigTest {
         assertEquals("KIS", p.getProperty("collector.approval.mode"));
         assertEquals("https://openapi.koreainvestment.com:9443",
                 load("application.yml").getProperty("collector.approval.rest-base-url"));
+        // 실전은 프로필에서 이름을 덮어쓰지 않고 기본(KIS_APP_*)을 쓴다
+        assertEquals(null, p.getProperty("collector.approval.app-key-env"));
+        assertEquals("KIS_APP_KEY", load("application.yml").getProperty("collector.approval.app-key-env"));
+        assertEquals("KIS_APP_SECRET", load("application.yml").getProperty("collector.approval.app-secret-env"));
     }
 }

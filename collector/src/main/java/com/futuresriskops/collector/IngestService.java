@@ -34,7 +34,8 @@ public class IngestService implements SmartLifecycle {
     public IngestService(CollectorProperties p, TickTradeRepository repository, OkHttpClient http,
                          Map<String, String> env, Clock clock) {
         ApprovalKeyProvider keys = p.approval().mode() == CollectorProperties.Approval.Mode.KIS
-                ? new KisApprovalKeyClient(http, p.approval().restBaseUrl(), env)
+                ? new KisApprovalKeyClient(http, p.approval().restBaseUrl(), env, p.approval().appKeyEnv(),
+                        p.approval().appSecretEnv())
                 : ApprovalKeyProvider.simulator();
         TickTrade.Source source = p.source();
         this.writer = new TickBatchWriter(repository::insertBatch, p.batch().queueCapacity(), p.batch().maxSize(),

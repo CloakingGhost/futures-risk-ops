@@ -20,8 +20,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record CollectorProperties(boolean enabled, TickTrade.Source source, String wsUrl, List<String> symbols,
                                   Duration maxReconnectBackoff, Approval approval, Batch batch) {
 
-    /** @param mode NONE 은 시뮬레이터(검사 없음), KIS 는 /oauth2/Approval */
-    public record Approval(Mode mode, String restBaseUrl) {
+    /**
+     * @param mode         NONE 은 시뮬레이터(검사 없음), KIS 는 /oauth2/Approval
+     * @param appKeyEnv    KIS 모드에서 앱키를 읽을 환경변수 이름(값이 아니다). 프로필마다 다르다
+     * @param appSecretEnv KIS 모드에서 시크릿을 읽을 환경변수 이름
+     */
+    public record Approval(Mode mode, String restBaseUrl, String appKeyEnv, String appSecretEnv) {
         public enum Mode {
             NONE,
             KIS
