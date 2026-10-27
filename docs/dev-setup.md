@@ -46,7 +46,8 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 ```
 
 - 기본 설정은 `ws://127.0.0.1:18080/tryitout`, 종목 `A01612`, `source=SIMULATOR` 다(`collector/src/main/resources/application.yml`).
-- 끌 때는 Ctrl+C 로 정상 종료한다. 종료할 때 큐에 남은 체결을 다 쓰고 `ingest stopped: trades=..., written=...` 를 남긴다. 작업 관리자 등으로 강제 종료하면 마지막 배치(최대 0.2초 분량)가 빠질 수 있다.
+- 수집기는 10초마다 `ingest stats: trades=..., written=..., duplicates=..., dropped=...` 를 로그에 남긴다.
+- 끌 때는 Ctrl+C 다. 정상 종료하면 큐에 남은 체결을 다 쓰고 `ingest stopped: ...` 를 남기지만, Windows 에서 `gradlew bootRun` 을 Ctrl+C 로 끄면 종료 훅이 돌지 않아 그 줄이 안 나오고 마지막 배치(최대 0.2초 분량)가 빠질 수 있다. 그때는 `ingest stats` 줄을 본다.
 - `trade_date` 는 지금 임시 규칙(수신 한국 날짜, 자정 넘김 보정)이다. Day 2 세션 캘린더가 넘겨받는다.
 
 ## KIS 실시간 체결 받기

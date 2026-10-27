@@ -58,7 +58,7 @@ docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d futures_risk_ops
 
 몇 초 간격으로 두 번 실행해 `count`가 늘어나는지 본다. 초당 약 100건씩 늘면 정상이다. 최근 체결을 보려면 `select traded_at, price, qty, acc_volume from tick_trade order by id desc limit 5` 를 `-c` 뒤에 넣는다.
 
-종료는 수집기에서 Ctrl+C. `ingest stopped: trades=..., written=..., duplicates=0, dropped=0` 줄이 나오고, trades와 written이 같으면 유실이 없다. 시뮬레이터도 Ctrl+C.
+수집기는 10초마다 `ingest stats: connects=..., trades=..., written=..., duplicates=..., dropped=...` 줄을 남긴다. trades와 written이 같고 dropped가 0이면 유실이 없다. 종료는 Ctrl+C. 단, Windows에서 `gradlew bootRun`을 Ctrl+C로 끄면 종료 훅이 돌지 않아 마지막 `ingest stopped:` 요약이 나오지 않을 수 있으니 `ingest stats` 줄을 보면 된다(그때 큐에 남은 최대 0.2초 분량은 못 쓸 수 있다). 시뮬레이터도 Ctrl+C.
 
 ### 2. 시나리오 B: 끊김과 재접속 보기
 

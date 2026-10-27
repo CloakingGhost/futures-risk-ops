@@ -8,6 +8,9 @@ import com.futuresriskops.collector.ws.KisApprovalKeyClient;
 import com.futuresriskops.collector.ws.RealtimeClient;
 import java.time.Clock;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,9 +20,15 @@ import org.springframework.context.SmartLifecycle;
 public class IngestService implements SmartLifecycle {
 
     private static final Logger LOG = LoggerFactory.getLogger(IngestService.class);
+    private static final long STATS_INTERVAL_SECONDS = 10;
 
     private final TickBatchWriter writer;
     private final RealtimeClient client;
+    private final ScheduledExecutorService statsLogger = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "ingest-stats");
+        t.setDaemon(true);
+        return t;
+    });
     private volatile boolean running;
 
     public IngestService(CollectorProperties p, TickTradeRepository repository, OkHttpClient http,
@@ -39,17 +48,27 @@ public class IngestService implements SmartLifecycle {
     public void start() {
         writer.start();
         client.start();
+        // Windows 에서 Ctrl+C 로 gradle bootRun 을 끄면 종료 훅이 돌지 않아 마지막 요약이 안 남는다. 그래서 주기적으로도 남긴다.
+        statsLogger.scheduleAtFixedRate(() -> LOG.info("ingest stats: {}", summary(client, writer)), STATS_INTERVAL_SECONDS,
+                STATS_INTERVAL_SECONDS, TimeUnit.SECONDS);
         running = true;
+    }
+
+    /** 로그에 남기는 한 줄 요약. trades 는 파싱한 체결, duplicates 는 이미 있어서 DB 가 버린 체결이다. */
+    static String summary(RealtimeClient client, TickBatchWriter writer) {
+        return "connects=" + client.connectCount() + ", trades=" + client.tradeCount() + ", written="
+                + writer.writtenCount() + ", duplicates=" + writer.duplicateCount() + ", dropped="
+                + writer.droppedCount() + ", parse-errors=" + client.parseErrorCount() + ", subscribe-errors="
+                + client.subscribeErrorCount();
     }
 
     @Override
     public void stop() {
+        statsLogger.shutdownNow();
         client.close();
         writer.close();
         running = false;
-        LOG.info("ingest stopped: trades={}, written={}, duplicates={}, dropped={}, parse-errors={}",
-                client.tradeCount(), writer.writtenCount(), writer.duplicateCount(), writer.droppedCount(),
-                client.parseErrorCount());
+        LOG.info("ingest stopped: {}", summary(client, writer));
     }
 
     @Override
