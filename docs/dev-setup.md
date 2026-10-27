@@ -51,14 +51,17 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 
 ## KIS 실시간 체결 받기
 
+환경변수를 불러온 터미널에서 모의투자를 먼저 확인한다. 자세한 절차와 볼 것은 `docs/day1-hands-on.md` 7번.
+
 ```
-$env:KIS_APP_KEY = "..."; $env:KIS_APP_SECRET = "..."      # 또는 .env 를 같은 터미널에 불러온다
-./gradlew :collector:bootRun --args="--spring.profiles.active=kis"
+./gradlew :collector:bootRun --args="--spring.profiles.active=kis-paper"   # 모의투자
+./gradlew :collector:bootRun --args="--spring.profiles.active=kis"         # 실전
 ```
 
-- `application-kis.yml`: 웹소켓 `ws://ops.koreainvestment.com:21000/tryitout`(공식 샘플 주소, 가정), 접속키는 `/oauth2/Approval` 로 받는다. 키가 없으면 시작할 때 실패한다.
+- 도메인(공식 샘플 `kis_devlp.yaml`): 모의투자 웹소켓 `ws://ops.koreainvestment.com:31000`, REST `https://openapivts.koreainvestment.com:29443` / 실전 웹소켓 `:21000`, REST `https://openapi.koreainvestment.com:9443`. 접속키는 `/oauth2/Approval` 로 받는다.
+- `KIS_APP_KEY`, `KIS_APP_SECRET` 은 선택한 쪽의 값이어야 한다. 없으면 시작할 때 실패한다.
 - 구독 키(`tr_key`)가 `A01612` 형식으로 되는지 확인한다. 안 되면 `--collector.symbols=<다른 형식>` 으로 바꿔 본다.
-- 실데이터는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
+- 받은 시세는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
 
 ## KIS 연결 확인 (curl)
 
