@@ -4,6 +4,7 @@ import com.futuresriskops.simulator.config.SimulatorConfig;
 import com.futuresriskops.simulator.kis.H0IFCNT0;
 import com.futuresriskops.simulator.kis.KisFrames;
 import com.futuresriskops.simulator.market.PriceModel;
+import com.futuresriskops.simulator.market.TradeSource;
 import com.futuresriskops.simulator.ws.MiniJson;
 import com.futuresriskops.simulator.ws.WebSocketConnection;
 import com.futuresriskops.simulator.ws.WebSocketServer;
@@ -45,14 +46,22 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         return t;
     });
     private final AtomicLong sessionSeq = new AtomicLong();
+    private final AtomicLong pingPongEchoes = new AtomicLong();
+    private final TradeSource.Factory sources;
 
     public SimulatorServer(SimulatorConfig cfg) {
         this(cfg, Clock.system(KST));
     }
 
     public SimulatorServer(SimulatorConfig cfg, Clock clock) {
+        this(cfg, clock, symbol -> new PriceModel(symbol, cfg.price()));
+    }
+
+    /** @param sources 종목별 체결 소스. 기본은 무작위 행보({@link PriceModel}) */
+    public SimulatorServer(SimulatorConfig cfg, Clock clock, TradeSource.Factory sources) {
         this.cfg = cfg;
         this.clock = clock;
+        this.sources = sources;
         this.ws = new WebSocketServer(cfg.server().host(), cfg.server().port(), this);
     }
 
@@ -66,6 +75,11 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
 
     public int sessionCount() {
         return sessions.size();
+    }
+
+    /** 클라이언트가 PINGPONG 메시지를 그대로 돌려보낸 횟수(모든 연결 합계). */
+    public long pingPongEchoCount() {
+        return pingPongEchoes.get();
     }
 
     // ------------------------------------------------------------------ 웹소켓 콜백
@@ -113,6 +127,11 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
             json = MiniJson.parse(text);
         } catch (IllegalArgumentException e) {
             conn.sendText(KisFrames.error("", "", "malformed request: " + e.getMessage()));
+            return;
+        }
+        if ("PINGPONG".equals(MiniJson.getString(json, "header", "tr_id"))) {
+            // KIS 클라이언트는 받은 PINGPONG 을 그대로 돌려보낸다. 응답하지 않고 세기만 한다.
+            pingPongEchoes.incrementAndGet();
             return;
         }
         String trType = MiniJson.getString(json, "header", "tr_type");
@@ -169,14 +188,14 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
     /** 종목 하나의 체결을 설정된 속도로 만들어 구독자에게 넘긴다. */
     private final class SymbolFeed {
         final String symbol;
-        final PriceModel model;
+        final TradeSource model;
         final CopyOnWriteArraySet<ClientSession> subscribers = new CopyOnWriteArraySet<>();
         private final Random rng;
         private volatile boolean stopped;
 
         SymbolFeed(String symbol) {
             this.symbol = symbol;
-            this.model = new PriceModel(symbol, cfg.price());
+            this.model = sources.create(symbol);
             long seed = cfg.price().seed().isPresent() ? cfg.price().seed().getAsLong() ^ ~symbol.hashCode() : System.nanoTime();
             this.rng = new Random(seed);
         }

@@ -7,5 +7,22 @@ spring:
     username: ${POSTGRES_USER}
     password: ${POSTGRES_PASSWORD}
   flyway:
+    # 마이그레이션은 collector 만 실행한다(파일은 db 모듈). risk 는 Flyway 를 켜지 않는다.
     enabled: true
     locations: classpath:db/migration
+
+# 기본은 로컬 시뮬레이터(./gradlew :simulator:run). KIS 는 --spring.profiles.active=kis
+collector:
+  enabled: true
+  source: SIMULATOR
+  ws-url: ws://127.0.0.1:18080/tryitout
+  symbols:
+    - A01612
+  max-reconnect-backoff: 30s
+  approval:
+    mode: NONE
+    rest-base-url: https://openapi.koreainvestment.com:9443
+  batch:
+    queue-capacity: 100000
+    max-size: 500
+    flush-interval-ms: 200

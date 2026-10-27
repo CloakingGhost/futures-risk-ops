@@ -10,7 +10,7 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 아래 다섯 가지는 사용자가 요청해도 어기지 않는다. 요청이 규칙과 부딪히면 코드를 만들지 말고 어떤 규칙 때문인지 알려준다.
 
 1. **주문 API 호출 코드를 만들지 않는다.** 주문·정정·취소·예약주문 등 주문 성격의 TR·엔드포인트(이름이나 URL에 order·주문이 들어가는 것 포함)를 부르는 코드, 그런 메서드를 가진 클라이언트 클래스를 만들지 않는다. 이 저장소는 시세를 읽고 계산만 한다.
-2. **키는 환경변수로만 읽는다.** 앱키·시크릿 등 인증 값은 `KIS_APP_KEY`, `KIS_APP_SECRET` 같은 환경변수에서만 읽는다(이름은 첫 사용 모듈에서 확정하고 여기에 적는다).
+2. **키는 환경변수로만 읽는다.** 앱키·시크릿 등 인증 값은 환경변수 `KIS_APP_KEY`, `KIS_APP_SECRET` 에서만 읽는다(collector `KisApprovalKeyClient` 에서 확정).
    - 코드, `application.yml`·`*.properties`, 테스트, 문서, 커밋 메시지, 로그, 예외 메시지에 값을 쓰지 않는다. 기본값도 두지 않고, 없으면 시작 단계에서 분명한 오류로 실패한다.
    - `.env` 는 커밋하지 않는다(`.gitignore`). 필요하면 값이 없는 `.env.example` 만 둔다.
    - DB 계정(`POSTGRES_USER`, `POSTGRES_PASSWORD`)도 같은 방식으로 환경변수에서만 읽는다.
@@ -32,7 +32,8 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 | 모듈 | 상태 | 역할 |
 |---|---|---|
 | `simulator` | 있음 | KIS H0IFCNT0 형식의 가짜 체결을 웹소켓으로 송출. 속도·지연·끊김·중단을 설정으로 바꾼다 |
-| `collector` | 뼈대 | KIS 웹소켓 수집, 재접속, 누락 감지. 지금은 시작할 때 Flyway 로 DB 테이블을 만드는 것까지 |
+| `db` | 있음 | Flyway 마이그레이션 파일만 담는다. 실행은 collector 한 곳에서만 한다. risk 는 Flyway 를 켜지 않는다 |
+| `collector` | 있음 | 시작할 때 Flyway 적용, KIS 웹소켓(H0IFCNT0) 수신·PINGPONG·재접속·재구독, 파싱, tick_trade 배치 적재(중복은 ON CONFLICT DO NOTHING) |
 | `risk` | 뼈대 | 베이시스·미결제약정·증거금·마진콜 계산, REST API. 지금은 빈 스프링 앱 |
 
 ```
@@ -40,7 +41,11 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 ./gradlew :simulator:test            # 시뮬레이터 테스트만
 ./gradlew :simulator:run --args="--rate.ticks-per-second=20"   # 시뮬레이터 실행
 ./gradlew :simulator:run --args="--help"                       # 설정 옵션 목록
+./gradlew :collector:bootRun                                   # 시뮬레이터에 붙어 수집 (DB 환경변수 필요)
 ```
+
+- 번호가 붙은 마이그레이션 파일(`db/src/main/resources/db/migration/V*.sql`)은 고치지 않는다. 바꿀 때는 다음 번호 파일을 더한다.
+- `collector` 테스트 중 PostgreSQL 이 필요한 것은 Testcontainers 로 임시 DB 를 띄운다. Docker 가 없으면 그 테스트만 건너뛴다(skipped).
 
 - Java 17, Gradle 멀티모듈, 패키지는 `com.futuresriskops.<module>`.
 - `collector`·`risk` 는 Spring Boot 3 을 쓴다. `simulator` 는 JDK 만 쓰는 독립 도구로 두고, 외부 의존성을 추가하려면 이유를 PR에 적는다.

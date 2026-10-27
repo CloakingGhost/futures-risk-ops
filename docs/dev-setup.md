@@ -33,6 +33,32 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "\dt
 ```
 
 테이블 4개(`instrument`, `futures_quote_snapshot`, `tick_trade`, `flyway_schema_history`)가 보이면 된다.
+마이그레이션 파일은 `db` 모듈에 있고, 실행은 collector 만 한다. 지금 버전은 V2(`tick_trade` 의 `trade_date`·`session`, 중복 방지 키)다.
+
+## 시뮬레이터로 수집해 보기
+
+터미널 두 개를 쓴다.
+
+```
+./gradlew :simulator:run --args="--rate.ticks-per-second=100"   # 터미널 1
+./gradlew :collector:bootRun                                     # 터미널 2 (DB 환경변수를 넣은 터미널)
+docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "select source, session, trade_date, count(*) from tick_trade group by 1,2,3"
+```
+
+- 기본 설정은 `ws://127.0.0.1:18080/tryitout`, 종목 `A01612`, `source=SIMULATOR` 다(`collector/src/main/resources/application.yml`).
+- 끌 때는 Ctrl+C 로 정상 종료한다. 종료할 때 큐에 남은 체결을 다 쓰고 `ingest stopped: trades=..., written=...` 를 남긴다. 작업 관리자 등으로 강제 종료하면 마지막 배치(최대 0.2초 분량)가 빠질 수 있다.
+- `trade_date` 는 지금 임시 규칙(수신 한국 날짜, 자정 넘김 보정)이다. Day 2 세션 캘린더가 넘겨받는다.
+
+## KIS 실시간 체결 받기
+
+```
+$env:KIS_APP_KEY = "..."; $env:KIS_APP_SECRET = "..."      # 또는 .env 를 같은 터미널에 불러온다
+./gradlew :collector:bootRun --args="--spring.profiles.active=kis"
+```
+
+- `application-kis.yml`: 웹소켓 `ws://ops.koreainvestment.com:21000/tryitout`(공식 샘플 주소, 가정), 접속키는 `/oauth2/Approval` 로 받는다. 키가 없으면 시작할 때 실패한다.
+- 구독 키(`tr_key`)가 `A01612` 형식으로 되는지 확인한다. 안 되면 `--collector.symbols=<다른 형식>` 으로 바꿔 본다.
+- 실데이터는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
 
 ## KIS 연결 확인 (curl)
 
