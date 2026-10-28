@@ -17,7 +17,7 @@ import java.util.Random;
  * <p>전부 합성값이다. 실제 시세를 캡처하거나 재배포하지 않는다. 스레드 안전하지 않으므로
  * 한 번에 한 스레드에서만 {@link #next} 를 부른다.
  */
-public final class PriceModel {
+public final class PriceModel implements TradeSource {
 
     private static final DateTimeFormatter HHMMSS = DateTimeFormatter.ofPattern("HHmmss");
     private static final double LIMIT_RATIO = 0.10;
@@ -71,11 +71,13 @@ public final class PriceModel {
         this.lowTicks = priceTicks;
     }
 
+    @Override
     public String symbol() {
         return symbol;
     }
 
     /** 체결 한 건을 만든다. {@code now} 는 체결 시각(KST 벽시계). */
+    @Override
     public H0IFCNT0.Record next(LocalTime now) {
         String hhmmss = now.format(HHMMSS);
 

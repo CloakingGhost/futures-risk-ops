@@ -300,6 +300,60 @@ class SimulatorServerTest {
     }
 
     @Test
+    void echoedPingPongTextIsCountedAndGetsNoReply() throws Exception {
+        SimulatorServer s = server("--pingpong.interval-seconds=0.3");
+        TestClient c = connect(s);
+        Msg ping = c.next(3000);
+        assertNotNull(ping);
+        c.send(ping.text); // KIS 클라이언트처럼 받은 그대로 돌려보낸다
+        long end = System.nanoTime() + 3_000_000_000L;
+        while (s.pingPongEchoCount() < 1 && System.nanoTime() < end) {
+            Thread.sleep(20);
+        }
+        assertEquals(1, s.pingPongEchoCount());
+        for (Msg m : c.collectFor(400)) {
+            assertEquals("PINGPONG", MiniJson.getString(MiniJson.parse(m.text), "header", "tr_id"),
+                    "an echoed PINGPONG must not get an error reply: " + m.text);
+        }
+    }
+
+    @Test
+    void customTradeSourceReplacesTheRandomWalk() throws Exception {
+        String[] values = new String[H0IFCNT0.FIELD_COUNT];
+        java.util.Arrays.fill(values, "0");
+        values[Field.FUTS_SHRN_ISCD.ordinal()] = "FIXED1";
+        values[Field.FUTS_PRPR.ordinal()] = "123.45";
+        H0IFCNT0.Record fixed = new H0IFCNT0.Record(values);
+        SimulatorConfig cfg = SimulatorConfig.load(new String[] {
+                "--server.port=0", "--rate.ticks-per-second=50", "--pingpong.interval-seconds=0"}, Map.of());
+        SimulatorServer s = new SimulatorServer(cfg, java.time.Clock.system(SimulatorServer.KST),
+                symbol -> new com.futuresriskops.simulator.market.TradeSource() {
+                    @Override
+                    public String symbol() {
+                        return symbol;
+                    }
+
+                    @Override
+                    public H0IFCNT0.Record next(java.time.LocalTime now) {
+                        return fixed;
+                    }
+                });
+        s.start();
+        servers.add(s);
+        TestClient c = connect(s);
+        c.subscribe("FIXED1");
+        Msg trade = null;
+        for (int i = 0; i < 10 && trade == null; i++) {
+            Msg m = c.next(3000);
+            if (m != null && isTrade(m.text)) {
+                trade = m;
+            }
+        }
+        assertNotNull(trade);
+        assertEquals(fixed.toFrame(), trade.text);
+    }
+
+    @Test
     void serverClosesTheConnectionAfterTheConfiguredTimeAndReconnectWorks() throws Exception {
         SimulatorServer s = server("--disconnect.after-seconds=1");
         TestClient c = connect(s);

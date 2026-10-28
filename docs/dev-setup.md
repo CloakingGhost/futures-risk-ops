@@ -12,7 +12,10 @@
 
 | 이름 | 쓰는 곳 |
 |---|---|
-| `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS API (시뮬레이터는 필요 없음) |
+| `KIS_APP_KEY`, `KIS_APP_SECRET` | KIS 실전 API (`kis` 프로필) |
+| `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` | KIS 모의투자 API (`kis-paper` 프로필) |
+
+시뮬레이터는 키가 필요 없다.
 | `POSTGRES_USER`, `POSTGRES_PASSWORD` | docker compose 와 collector |
 
 `docker compose` 는 `.env` 를 자동으로 읽는다. Gradle 과 스프링은 읽지 않으므로 같은 터미널에서 환경변수로 넣는다.
@@ -33,6 +36,36 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "\dt
 ```
 
 테이블 4개(`instrument`, `futures_quote_snapshot`, `tick_trade`, `flyway_schema_history`)가 보이면 된다.
+마이그레이션 파일은 `db` 모듈에 있고, 실행은 collector 만 한다. 지금 버전은 V2(`tick_trade` 의 `trade_date`·`session`, 중복 방지 키)다.
+
+## 시뮬레이터로 수집해 보기
+
+터미널 두 개를 쓴다.
+
+```
+./gradlew :simulator:run --args="--rate.ticks-per-second=100"   # 터미널 1
+./gradlew :collector:bootRun                                     # 터미널 2 (DB 환경변수를 넣은 터미널)
+docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "select source, session, trade_date, count(*) from tick_trade group by 1,2,3"
+```
+
+- 기본 설정은 `ws://127.0.0.1:18080/tryitout`, 종목 `A01612`, `source=SIMULATOR` 다(`collector/src/main/resources/application.yml`).
+- 수집기는 10초마다 `ingest stats: trades=..., written=..., duplicates=..., dropped=...` 를 로그에 남긴다.
+- 끌 때는 Ctrl+C 다. 정상 종료하면 큐에 남은 체결을 다 쓰고 `ingest stopped: ...` 를 남기지만, Windows 에서 `gradlew bootRun` 을 Ctrl+C 로 끄면 종료 훅이 돌지 않아 그 줄이 안 나오고 마지막 배치(최대 0.2초 분량)가 빠질 수 있다. 그때는 `ingest stats` 줄을 본다.
+- `trade_date` 는 지금 임시 규칙(수신 한국 날짜, 자정 넘김 보정)이다. Day 2 세션 캘린더가 넘겨받는다.
+
+## KIS 실시간 체결 받기
+
+환경변수를 불러온 터미널에서 모의투자를 먼저 확인한다. 자세한 절차와 볼 것은 `docs/day1-hands-on.md` 7번.
+
+```
+./gradlew :collector:bootRun --args="--spring.profiles.active=kis-paper"   # 모의투자
+./gradlew :collector:bootRun --args="--spring.profiles.active=kis"         # 실전
+```
+
+- 도메인(공식 샘플 `kis_devlp.yaml`): 모의투자 웹소켓 `ws://ops.koreainvestment.com:31000`, REST `https://openapivts.koreainvestment.com:29443` / 실전 웹소켓 `:21000`, REST `https://openapi.koreainvestment.com:9443`. 접속키는 `/oauth2/Approval` 로 받는다.
+- 프로필마다 읽는 환경변수가 다르다. `kis` 는 `KIS_APP_KEY`/`KIS_APP_SECRET`, `kis-paper` 는 `KIS_PAPER_APP_KEY`/`KIS_PAPER_APP_SECRET` 이라, 두 쌍을 `.env` 에 같이 두고 프로필만 바꿔도 된다. 쓰는 쪽 값이 없으면 시작할 때 그 환경변수 이름을 알려 주며 실패한다.
+- 구독 키(`tr_key`)가 `A01612` 형식으로 되는지 확인한다. 안 되면 `--collector.symbols=<다른 형식>` 으로 바꿔 본다.
+- 받은 시세는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
 
 ## KIS 연결 확인 (curl)
 

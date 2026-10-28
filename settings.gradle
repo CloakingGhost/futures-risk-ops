@@ -8,4 +8,4 @@ pluginManagement {
 
 rootProject.name = 'futures-risk-ops'
 
-include 'simulator', 'collector', 'risk'
+include 'simulator', 'db', 'collector', 'risk'
