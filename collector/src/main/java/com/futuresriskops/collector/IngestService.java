@@ -78,6 +78,10 @@ public class IngestService implements SmartLifecycle {
         if (to == RealtimeClient.State.SUBSCRIBED) {
             stalls.onSubscribed(at);
         }
+        if (to == RealtimeClient.State.CONNECTING) {
+            // 새 연결을 열기 전에 표시한다. 그 연결의 첫 체결보다 반드시 먼저다(SUBSCRIBED 는 첫 체결보다 늦게 처리될 수 있다)
+            gaps.onNewConnection();
+        }
         if (to == RealtimeClient.State.CONNECTING && !gate.wantConnected(at)) {
             long n = outOfSessionConnects.incrementAndGet();
             LOG.warn("connecting outside the trading session (#{})", n);
@@ -118,15 +122,20 @@ public class IngestService implements SmartLifecycle {
         stalls.check(now, client.state() == RealtimeClient.State.SUBSCRIBED && gate.inSession(now));
     }
 
-    /** 로그에 남기는 한 줄 요약. trades 는 파싱한 체결, duplicates 는 이미 있어서 DB 가 버린 체결이다. */
+    /**
+     * 로그에 남기는 한 줄 요약. trades 는 파싱한 체결, duplicates 는 이미 있어서 DB 가 버린 체결이다.
+     * reconnect-* 는 끊긴 동안 놓친 체결(확실한 누락), stream-* 는 연결 중 누적거래량 빈틈(묶음 전송일 수 있다).
+     */
     String summary() {
         return "state=" + client.state() + ", connects=" + client.connectCount() + ", disconnects="
                 + client.disconnectCount() + ", recoveries=" + client.recoveryCount() + ", last-recovery-ms="
                 + client.lastRecoveryMillis() + ", max-recovery-ms=" + client.maxRecoveryMillis() + ", trades="
                 + client.tradeCount() + ", written=" + writer.writtenCount() + ", duplicates="
-                + writer.duplicateCount() + ", dropped=" + writer.droppedCount() + ", gaps=" + gaps.gapCount()
-                + ", missing-volume=" + gaps.missingVolume() + ", missing-rate="
-                + String.format(Locale.ROOT, "%.4f", gaps.missingRate()) + ", repeats=" + gaps.repeatCount()
+                + writer.duplicateCount() + ", dropped=" + writer.droppedCount() + ", reconnect-gaps="
+                + gaps.reconnectGapCount() + ", reconnect-missing=" + gaps.reconnectMissingVolume()
+                + ", reconnect-missing-rate=" + String.format(Locale.ROOT, "%.4f", gaps.reconnectMissingRate())
+                + ", stream-gaps=" + gaps.streamGapCount() + ", stream-missing=" + gaps.streamMissingVolume()
+                + ", repeats=" + gaps.repeatCount()
                 + ", stalls=" + stalls.stallCount() + ", out-of-session-connects=" + outOfSessionConnects.get()
                 + ", parse-errors=" + client.parseErrorCount() + ", subscribe-errors=" + client.subscribeErrorCount();
     }

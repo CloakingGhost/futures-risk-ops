@@ -111,8 +111,8 @@ class IngestServiceTest {
     void summaryShowsEveryCounterEvenBeforeAnythingHappened() {
         IngestService svc = service(props(1, false, Duration.ofSeconds(5)), Clock.systemUTC());
         assertEquals("state=IDLE, connects=0, disconnects=0, recoveries=0, last-recovery-ms=-1, max-recovery-ms=-1, "
-                + "trades=0, written=0, duplicates=0, dropped=0, gaps=0, missing-volume=0, missing-rate=0.0000, "
-                + "repeats=0, stalls=0, out-of-session-connects=0, parse-errors=0, subscribe-errors=0",
+                + "trades=0, written=0, duplicates=0, dropped=0, reconnect-gaps=0, reconnect-missing=0, "
+                + "reconnect-missing-rate=0.0000, stream-gaps=0, stream-missing=0, repeats=0, stalls=0, out-of-session-connects=0, parse-errors=0, subscribe-errors=0",
                 svc.summary());
     }
 
@@ -152,8 +152,9 @@ class IngestServiceTest {
         svc.start();
         await(() -> svc.stalls().stallCount() == 1, "one stall");
         await(() -> !svc.stalls().stalled(), "trades resumed");
-        await(() -> svc.gaps().gapCount() >= 1, "the trades dropped during the stall show up as a gap");
-        assertTrue(svc.gaps().missingVolume() > 0);
+        await(() -> svc.gaps().streamGapCount() >= 1, "the trades dropped during the stall show up as a gap");
+        assertTrue(svc.gaps().streamMissingVolume() > 0);
+        assertEquals(0, svc.gaps().reconnectGapCount(), "no reconnect happened, so it is a stream gap");
         assertEquals(0, svc.client().disconnectCount(), "the connection itself never dropped");
     }
 }

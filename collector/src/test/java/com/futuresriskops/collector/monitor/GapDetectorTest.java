@@ -1,6 +1,8 @@
 package com.futuresriskops.collector.monitor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.futuresriskops.collector.monitor.GapDetector.Kind;
 import com.futuresriskops.collector.session.TradingSession;
@@ -73,5 +75,46 @@ class GapDetectorTest {
         assertEquals(Kind.FIRST, g.observe("A01703", D, TradingSession.DAY, 1, 3).kind());
         assertEquals(Kind.OK, day(1, 11));
         assertEquals(Kind.OK, g.observe("A01703", D, TradingSession.DAY, 1, 4).kind());
+    }
+
+    @Test
+    void gapRightAfterANewConnectionIsAReconnectGap() {
+        g.onNewConnection();
+        day(1, 10);
+        assertEquals(Kind.OK, day(1, 11));
+        g.onNewConnection(); // 끊겼다 다시 연결
+        GapDetector.Observation o = g.observe("A01612", D, TradingSession.DAY, 1, 20);
+        assertEquals(Kind.GAP, o.kind());
+        assertTrue(o.afterReconnect());
+        assertEquals(1, g.reconnectGapCount());
+        assertEquals(8, g.reconnectMissingVolume());
+        assertEquals(0, g.streamGapCount());
+    }
+
+    @Test
+    void gapWhileConnectedIsAStreamGap() {
+        g.onNewConnection();
+        day(1, 10);
+        day(1, 11);
+        GapDetector.Observation o = g.observe("A01612", D, TradingSession.DAY, 1, 14); // 묶음 전송처럼
+        assertEquals(Kind.GAP, o.kind());
+        assertFalse(o.afterReconnect());
+        assertEquals(1, g.streamGapCount());
+        assertEquals(2, g.streamMissingVolume());
+        assertEquals(0, g.reconnectGapCount());
+        assertEquals(0.0, g.reconnectMissingRate());
+    }
+
+    @Test
+    void resentTradesDoNotUseUpTheReconnectMark() {
+        g.onNewConnection();
+        day(1, 10);
+        day(1, 11);
+        g.onNewConnection();
+        assertEquals(Kind.REPEAT, day(1, 10)); // 재전송
+        assertEquals(Kind.REPEAT, day(1, 11));
+        GapDetector.Observation o = g.observe("A01612", D, TradingSession.DAY, 1, 15);
+        assertTrue(o.afterReconnect(), "the first new trade after the resend still counts as after reconnect");
+        assertEquals(1, g.reconnectGapCount());
     }
 }

@@ -91,7 +91,9 @@ class ReconnectExperimentTest {
     @Test
     void tradesMissedWhileDisconnectedAreCountedExactly() throws Exception {
         IngestService svc = runThreeDrops();
-        assertTrue(svc.gaps().gapCount() >= 3, "a gap after every reconnect");
+        assertTrue(svc.gaps().reconnectGapCount() >= 3, "a gap after every reconnect");
+        assertEquals(0, svc.gaps().streamGapCount(), "no gap while connected");
+        assertEquals(svc.gaps().missingVolume(), svc.gaps().reconnectMissingVolume());
         assertEquals(svc.gaps().missingVolume(), holesInDatabase(), "missing volume equals the holes in acc_volume");
         assertEquals(0, svc.writer().duplicateCount());
     }

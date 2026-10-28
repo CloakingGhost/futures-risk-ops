@@ -55,6 +55,12 @@ class MigrationFilesTest {
         assertTrue(sql.contains("unique (instrument_id, trade_date, session, source, acc_volume)"));
     }
 
+    @Test
+    void v4AllowsKisPaperAsASource() throws IOException {
+        String sql = read("V4__tick_trade_source_kis_paper.sql").toLowerCase();
+        assertTrue(sql.contains("check (source in ('kis', 'kis_paper', 'simulator', 'replay'))"));
+    }
+
     private static int count(String text, String needle) {
         int n = 0;
         for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {

@@ -1,9 +1,10 @@
 # KIS 모의투자 연결(먼저 이쪽으로 확인한다). 앱키·시크릿은 환경변수 KIS_PAPER_APP_KEY, KIS_PAPER_APP_SECRET 에서만 읽는다(실전 KIS_APP_* 와 따로 둔다).
 # 도메인은 공식 샘플 kis_devlp.yaml 의 vps(REST)·vops(웹소켓) 값이다.
 # 모의투자 서버가 H0IFCNT0 실시간 체결을 내보내는지, 구독 키(tr_key)가 A01612 형식인지는 실접속으로 확인할 일이다(가정).
-# 받은 시세는 로컬 DB 에만 쌓이고 source 는 KIS 로 적힌다. 실전 데이터와 섞지 않으려면 확인 뒤 지운다.
+# 받은 시세는 로컬 DB 에만 쌓이고 source 는 KIS_PAPER 로 적혀 실전(KIS)과 구분된다.
 collector:
-  source: KIS
+  # 모의투자 체결은 실전(KIS)과 따로 적는다(Flyway V4)
+  source: KIS_PAPER
   session:
     gating: true
   # 야간장은 체결 간격이 길 수 있어 넉넉히 둔다(가정, 실체결을 보고 조정)
