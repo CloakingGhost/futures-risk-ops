@@ -35,7 +35,7 @@ class SimulatorConfigTest {
     void everyOptionHasAValidDefault() {
         // 옵션 목록의 기본값만으로 설정이 만들어져야 한다(문서와 --help 가 이 목록을 쓴다)
         load(Map.of());
-        assertEquals(23, SimulatorConfig.OPTIONS.size());
+        assertEquals(24, SimulatorConfig.OPTIONS.size());
     }
 
     @Test

@@ -7,7 +7,9 @@ import com.futuresriskops.collector.store.PostgresTestSupport;
 import com.futuresriskops.collector.store.TickBatchWriter;
 import com.futuresriskops.collector.store.TickTrade;
 import com.futuresriskops.collector.store.TickTradeRepository;
+import com.futuresriskops.collector.session.TestCalendars;
 import com.futuresriskops.collector.ws.ApprovalKeyProvider;
+import com.futuresriskops.collector.ws.Backoff;
 import com.futuresriskops.collector.ws.RealtimeClient;
 import com.futuresriskops.simulator.SimulatorServer;
 import com.futuresriskops.simulator.config.SimulatorConfig;
@@ -15,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -49,8 +52,9 @@ class IngestThroughputTest {
             writer.start();
             RealtimeClient client = new RealtimeClient(new OkHttpClient(),
                     "ws://127.0.0.1:" + sim.port() + "/tryitout", List.of("A01612"), ApprovalKeyProvider.simulator(),
-                    (t, at) -> writer.offer(TickTrade.of(t, at, TickTrade.Source.SIMULATOR)),
-                    Duration.ofSeconds(1), Clock.systemUTC());
+                    (t, at) -> writer.offer(TickTrade.of(t, at, TickTrade.Source.SIMULATOR, TestCalendars.standard())),
+                    new Backoff(Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ZERO, new Random(1)),
+                    Clock.systemUTC());
             client.start();
             Thread.sleep(RUN.toMillis());
             client.close();

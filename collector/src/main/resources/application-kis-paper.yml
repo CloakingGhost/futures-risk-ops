@@ -4,6 +4,10 @@
 # 받은 시세는 로컬 DB 에만 쌓이고 source 는 KIS 로 적힌다. 실전 데이터와 섞지 않으려면 확인 뒤 지운다.
 collector:
   source: KIS
+  session:
+    gating: true
+  # 야간장은 체결 간격이 길 수 있어 넉넉히 둔다(가정, 실체결을 보고 조정)
+  stall-threshold: 60s
   ws-url: ws://ops.koreainvestment.com:31000/tryitout
   approval:
     mode: KIS

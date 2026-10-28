@@ -23,6 +23,8 @@ dependencies {
     // 웹소켓·REST 클라이언트(버전은 Spring Boot 가 관리)
     implementation 'com.squareup.okhttp3:okhttp'
     implementation 'com.fasterxml.jackson.core:jackson-databind'
+    // 세션 캘린더(config/session-calendar.yaml) 읽기
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml'
     runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
@@ -33,6 +35,11 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// 장 시간 캘린더는 저장소 루트 config/ 에 하나만 두고(다른 언어·ConfigMap 도 같은 파일), jar 에는 기본값으로 넣는다.
+tasks.named('processResources') {
+    from(rootProject.file('config/session-calendar.yaml'))
 }
 
 tasks.named('test') {
