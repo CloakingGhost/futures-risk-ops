@@ -68,6 +68,7 @@ class IngestServiceTest {
         return new CollectorProperties(true, TickTrade.Source.SIMULATOR, "ws://127.0.0.1:" + port + "/tryitout",
                 List.of("A01612"),
                 new CollectorProperties.Reconnect(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ZERO),
+                Duration.ofSeconds(20),
                 new CollectorProperties.Session("unused-in-tests", gating, Duration.ofMinutes(1)), stallThreshold,
                 false, new CollectorProperties.Approval(CollectorProperties.Approval.Mode.NONE, "https://unused",
                         "UNUSED_KEY_ENV", "UNUSED_SECRET_ENV"),

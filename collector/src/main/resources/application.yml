@@ -23,6 +23,8 @@ collector:
     initial-backoff: 1s
     max-backoff: 30s
     max-jitter: 500ms
+  # 이 간격으로 웹소켓 ping 을 보낸다. 다음 ping 까지 pong 이 없으면(최대 약 2배 시간) 죽은 연결로 보고 다시 붙는다
+  ws-ping-interval: 20s
   session:
     # 장 시간 캘린더. 기본은 jar 에 넣은 저장소의 config/session-calendar.yaml. 다른 파일은 file:경로
     calendar: classpath:session-calendar.yaml

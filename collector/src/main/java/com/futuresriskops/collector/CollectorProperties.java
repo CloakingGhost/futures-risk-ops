@@ -14,6 +14,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param wsUrl              웹소켓 주소
  * @param symbols            구독할 종목(tr_key)
  * @param reconnect          재접속 대기(지수 백오프 + 지터)
+ * @param wsPingInterval     이 간격으로 웹소켓 ping 을 보내고, 다음 ping 때까지 pong 이 없으면 죽은 연결로 보고 끊는다(0 이면 끔)
  * @param session            세션 캘린더와 장 시간 접속
  * @param stallThreshold     구독 중 세션 안에서 이 시간 넘게 체결이 없으면 수신 공백으로 센다
  * @param backfillTradeDates true 면 시작할 때 쌓인 tick_trade 의 거래일·세션을 캘린더 규칙으로 다시 계산한다
@@ -22,7 +23,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "collector")
 public record CollectorProperties(boolean enabled, TickTrade.Source source, String wsUrl, List<String> symbols,
-                                  Reconnect reconnect, Session session, Duration stallThreshold,
+                                  Reconnect reconnect, Duration wsPingInterval, Session session, Duration stallThreshold,
                                   boolean backfillTradeDates, Approval approval, Batch batch) {
 
     /** 1, 2, 4 ... 초로 늘려 maxBackoff 에서 멈추고, 매번 0~maxJitter 를 더한다. */

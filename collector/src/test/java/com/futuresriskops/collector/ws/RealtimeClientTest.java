@@ -6,10 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.futuresriskops.collector.kis.H0ifcnt0Trade;
 import com.futuresriskops.simulator.SimulatorServer;
 import com.futuresriskops.simulator.config.SimulatorConfig;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -163,5 +170,59 @@ class RealtimeClientTest {
         await(() -> states.stream().filter(x -> x == RealtimeClient.State.BACKOFF).count() >= 3, "three backoffs");
         assertEquals(0, c.connectCount());
         assertEquals(-1, c.lastRecoveryMillis(), "never subscribed, so nothing to recover");
+    }
+
+    /**
+     * 와이파이가 끊긴 것처럼: 핸드셰이크와 구독 응답까지 한 뒤 TCP 는 열어 둔 채 아무것도 보내지도 답하지도 않는 서버.
+     * ping 을 켜 두면 pong 이 오지 않아 클라이언트가 죽은 연결로 보고 끊어야 한다.
+     */
+    @Test
+    void pingWithoutPongMarksASilentlyDeadConnectionAsLost() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread t = new Thread(() -> {
+                try {
+                    Socket s = server.accept();
+                    open.add(s);
+                    BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
+                    String key = null;
+                    for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) {
+                        if (line.toLowerCase().startsWith("sec-websocket-key:")) {
+                            key = line.substring(line.indexOf(':') + 1).trim();
+                        }
+                    }
+                    String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest(
+                            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.ISO_8859_1)));
+                    OutputStream out = s.getOutputStream();
+                    String crlf = "\r\n";
+                    out.write(("HTTP/1.1 101 Switching Protocols" + crlf + "Upgrade: websocket" + crlf
+                            + "Connection: Upgrade" + crlf + "Sec-WebSocket-Accept: " + accept + crlf + crlf)
+                            .getBytes(StandardCharsets.ISO_8859_1));
+                    byte[] ack = ("{\"header\":{\"tr_id\":\"H0IFCNT0\",\"tr_key\":\"A01612\"},"
+                            + "\"body\":{\"rt_cd\":\"0\",\"msg1\":\"SUBSCRIBE SUCCESS\"}}").getBytes(StandardCharsets.UTF_8);
+                    out.write(0x81); // FIN + 텍스트 프레임
+                    out.write(ack.length); // 125 바이트 이하
+                    out.write(ack);
+                    out.flush();
+                    // 이후로는 읽지도 쓰지도 않는다(ping 에 pong 이 없다)
+                } catch (Exception ignored) {
+                    // 테스트 종료로 닫힘
+                }
+            }, "silent-server");
+            t.setDaemon(true);
+            t.start();
+
+            OkHttpClient http = new OkHttpClient.Builder().pingInterval(Duration.ofMillis(200)).build();
+            List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
+            RealtimeClient c = new RealtimeClient(http, "ws://127.0.0.1:" + server.getLocalPort() + "/tryitout",
+                    List.of("A01612"), ApprovalKeyProvider.simulator(), (tr, at) -> received.add(tr),
+                    new Backoff(Duration.ofSeconds(5), Duration.ofSeconds(5), Duration.ZERO, new Random(1)),
+                    Clock.systemUTC());
+            open.add(c);
+            c.setStateListener((from, to, at) -> states.add(to));
+            c.start();
+            await(() -> states.contains(RealtimeClient.State.SUBSCRIBED), "subscribed");
+            await(() -> c.state() == RealtimeClient.State.BACKOFF, "the dead connection is noticed");
+            assertEquals(1, c.disconnectCount());
+        }
     }
 }

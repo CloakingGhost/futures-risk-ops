@@ -55,7 +55,7 @@ class ReconnectExperimentTest {
             CollectorProperties p = IngestServiceTest.props(sim.port(), false, Duration.ofSeconds(30));
             p = new CollectorProperties(p.enabled(), p.source(), p.wsUrl(), p.symbols(),
                     new CollectorProperties.Reconnect(Duration.ofMillis(300), Duration.ofMillis(300), Duration.ZERO),
-                    p.session(), p.stallThreshold(), false, p.approval(), p.batch());
+                    p.wsPingInterval(), p.session(), p.stallThreshold(), false, p.approval(), p.batch());
             IngestService svc = new IngestService(p, TestCalendars.standard(), new TickTradeRepository(jdbc)::insertBatch,
                     new OkHttpClient(), Map.of(), Clock.systemUTC());
             svc.start();

@@ -65,7 +65,10 @@ public class IngestService implements SmartLifecycle {
                 p.batch().flushIntervalMs());
         Backoff backoff = new Backoff(p.reconnect().initialBackoff(), p.reconnect().maxBackoff(),
                 p.reconnect().maxJitter(), new Random());
-        this.client = new RealtimeClient(http, p.wsUrl(), p.symbols(), keys, (trade, receivedAt) -> {
+        // 웹소켓만 ping 을 켠다. 와이파이가 끊겨도 TCP 가 닫히지 않으면 데이터가 안 오는 연결을 계속 붙어 있다고 믿게 된다
+        // (2026-10-28 야간장, 와이파이를 끊었는데 SUBSCRIBED 가 유지됨). pong 이 오지 않으면 OkHttp 가 연결을 실패로 닫는다.
+        OkHttpClient ws = http.newBuilder().pingInterval(p.wsPingInterval()).build();
+        this.client = new RealtimeClient(ws, p.wsUrl(), p.symbols(), keys, (trade, receivedAt) -> {
             TickTrade t = TickTrade.of(trade, receivedAt, source, calendar);
             gaps.observe(t.symbol(), t.tradeDate(), t.session(), t.qty(), t.accVolume());
             stalls.onTrade(receivedAt);
