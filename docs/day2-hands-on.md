@@ -101,13 +101,23 @@ Day 1 은 거래일을 '수신 한국 날짜'로 채웠다. 오늘부터는 야�
 
 `trade date backfill: scanned=..., updated=..., conflicts=...` 한 줄을 남기고 끝난다. `conflicts` 는 바꾸면 이미 있는 행과 같은 체결이 되는 행으로, 지우지 않고 그대로 둔다.
 
-### G. 전체 테스트
+### G. 출처가 다른 체결은 서로 막지 않는다 (Flyway V3)
+
+수집기를 한 번 켜면 V3 가 적용된다(`Migrating schema "public" to version "3 - tick trade dedup by source"`). 이제 중복 방지 키는 `(종목, 거래일, 세션, 출처, 누적거래량)` 이다. 시뮬레이터를 돌린 날 KIS 를 붙여도 KIS 체결이 시뮬레이터 행 때문에 버려지지 않으므로, 확인 전에 `truncate` 할 필요가 없다. 출처별로 보려면 아래 조회의 `source` 열을 본다.
+
+```bash
+docker compose exec postgres sh -c 'psql -U "$POSTGRES_USER" -d futures_risk_ops -c "select source, session, trade_date, count(*) from tick_trade group by 1,2,3 order by 3,1"'
+```
+
+같은 출처 안의 재수신(시나리오 B)은 여전히 한 번만 쌓인다. 모의투자와 실전은 둘 다 `KIS` 라서 이 키로 구분되지 않으므로, 모의투자 확인이 끝난 데이터는 실전을 붙이기 전에 직접 지운다.
+
+### H. 전체 테스트
 
 ```bash
 ./gradlew test
 ```
 
-124개(simulator 48, db 3, collector 72, risk 1)가 통과해야 한다. Docker 가 꺼져 있으면 PostgreSQL 테스트 10개는 건너뛴다. 끊김 실험은 `ReconnectExperimentTest` 가 자동으로도 한다(세 번 끊고 복구 시간, 누락 수량 = DB 빈틈, 중복 = 재전송 수 확인).
+126개(simulator 48, db 4, collector 73, risk 1)가 통과해야 한다. Docker 가 꺼져 있으면 PostgreSQL 테스트 11개는 건너뛴다. 끊김 실험은 `ReconnectExperimentTest` 가 자동으로도 한다(세 번 끊고 복구 시간, 누락 수량 = DB 빈틈, 중복 = 재전송 수 확인).
 
 ## 2부. 오늘 구현의 브리핑
 
@@ -115,11 +125,12 @@ Day 1 은 거래일을 '수신 한국 날짜'로 채웠다. 오늘부터는 야�
 
 연결이 끊기면 스스로 다시 붙어 재구독하고, 끊긴 동안 놓친 체결을 숫자로 보여 주며, 장 시간 캘린더(YAML)를 보고 세션 안에서만 접속하고 체결의 거래일·세션을 정한다.
 
-### 핵심 단계 세 가지
+### 핵심 단계 네 가지
 
 1. **재접속을 상태 머신으로 바꿨다.** `IDLE → CONNECTING → SUBSCRIBED`, 끊기면 `BACKOFF` 로 가서 1, 2, 4, 8 ... 초(최대 30초)에 0~500ms 지터를 더해 기다린다. 구독 응답이나 첫 체결이 와야 `SUBSCRIBED` 이고, 그때 대기 시간을 처음으로 되돌린다. 상태는 스레드 하나(`ws-control`)에서만 바꾸고, 연결마다 세대 번호를 붙여 지난 연결의 늦은 콜백이 새 연결을 건드리지 못하게 했다.
 2. **누락을 누적거래량으로 센다.** 체결마다 `누적거래량 증가분` 과 `이번 체결 수량` 을 비교한다. 증가분이 크면 그만큼 놓친 것(GAP), 이미 본 값이면 다시 받은 것(REPEAT)이다. REPEAT 은 DB UNIQUE 가 버릴 행과 정확히 같아서, 두 숫자를 맞춰 보면 중복 방지가 실제로 동작하는지 알 수 있다. 연결은 살아 있는데 체결만 멈추는 경우는 별도로 `stalls` 로 센다.
-3. **장 시간을 코드 밖 YAML 로 뺐다.** `config/session-calendar.yaml` 에 주간·야간 시각, 휴장일, 특수 개장, 야간장 거래일 규칙이 있다. 같은 파일을 jar 에 넣어 collector 가 읽고, Day 8 에는 ConfigMap, Day 9 알람과 Day 16 장애 주입 안전장치도 이 파일 하나를 본다. `SessionCalendar` 는 입력만 받아 답하는 순수 함수(`isOpen`, `nextOpen`, `shouldBeConnected`, `classify`)라 시계 없이 테스트한다.
+3. **중복 방지 키에 출처를 넣었다(Flyway V3, 사용자 결정).** 시뮬레이터·KIS·리플레이 체결이 누적거래량만 같으면 서로를 버리던 문제를 없앴다. 같은 출처 안의 재수신은 그대로 막는다.
+4. **장 시간을 코드 밖 YAML 로 뺐다.** `config/session-calendar.yaml` 에 주간·야간 시각, 휴장일, 특수 개장, 야간장 거래일 규칙이 있다. 같은 파일을 jar 에 넣어 collector 가 읽고, Day 8 에는 ConfigMap, Day 9 알람과 Day 16 장애 주입 안전장치도 이 파일 하나를 본다. `SessionCalendar` 는 입력만 받아 답하는 순수 함수(`isOpen`, `nextOpen`, `shouldBeConnected`, `classify`)라 시계 없이 테스트한다.
 
 ### 왜 지금 구현했나
 

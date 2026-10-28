@@ -17,7 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 실제 PostgreSQL 에서 V1·V2 마이그레이션과 중복 제거를 확인한다. Docker 가 없으면 건너뛴다. */
+/** 실제 PostgreSQL 에서 V1~V3 마이그레이션과 중복 제거를 확인한다. Docker 가 없으면 건너뛴다. */
 @Testcontainers(disabledWithoutDocker = true)
 class TickTradeRepositoryTest {
 
@@ -49,7 +49,7 @@ class TickTradeRepositoryTest {
         List<String> cols = jdbc.queryForList(
                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'tick_trade'", String.class);
         assertTrue(cols.containsAll(List.of("trade_date", "session")), cols.toString());
-        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(3, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
     }
 
     @Test
@@ -66,6 +66,17 @@ class TickTradeRepositoryTest {
         repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.SIMULATOR)));
         assertEquals(1, repo.insertBatch(List.of(trade(10, TradingSession.NIGHT, TickTrade.Source.SIMULATOR))));
         assertEquals(2, rows());
+    }
+
+    @Test
+    void sameAccVolumeFromAnotherSourceIsKept() {
+        // V3: 시뮬레이터 행이 같은 종목·같은 날의 KIS·리플레이 체결을 막지 않는다
+        repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.SIMULATOR)));
+        assertEquals(1, repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.KIS))));
+        assertEquals(1, repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.REPLAY))));
+        assertEquals(0, repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.KIS))),
+                "the same source still deduplicates");
+        assertEquals(3, rows());
     }
 
     @Test

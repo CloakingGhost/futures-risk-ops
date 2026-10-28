@@ -48,6 +48,13 @@ class MigrationFilesTest {
         assertTrue(sql.contains("unique (instrument_id, trade_date, session, acc_volume)"));
     }
 
+    @Test
+    void v3AddsSourceToTheDedupKey() throws IOException {
+        String sql = read("V3__tick_trade_dedup_by_source.sql").toLowerCase();
+        assertTrue(sql.contains("drop constraint uq_tick_trade_dedup"));
+        assertTrue(sql.contains("unique (instrument_id, trade_date, session, source, acc_volume)"));
+    }
+
     private static int count(String text, String needle) {
         int n = 0;
         for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {
