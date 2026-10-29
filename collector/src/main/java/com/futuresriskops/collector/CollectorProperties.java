@@ -2,6 +2,7 @@ package com.futuresriskops.collector;
 
 import com.futuresriskops.collector.instrument.SubscriptionPlanner;
 import com.futuresriskops.collector.store.TickTrade;
+import com.futuresriskops.collector.ws.KisApprovalKeyClient;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -70,11 +71,16 @@ public record CollectorProperties(boolean enabled, TickTrade.Source source, Stri
      * @param mode         NONE 은 시뮬레이터(검사 없음), KIS 는 /oauth2/Approval
      * @param appKeyEnv    KIS 모드에서 앱키를 읽을 환경변수 이름(값이 아니다). 프로필마다 다르다
      * @param appSecretEnv KIS 모드에서 시크릿을 읽을 환경변수 이름
+     * @param keyTtl       접속키를 받은 뒤 만료까지(가정: 24시간). 만료 시각 지표에만 쓴다. 없으면 24시간
      */
-    public record Approval(Mode mode, String restBaseUrl, String appKeyEnv, String appSecretEnv) {
+    public record Approval(Mode mode, String restBaseUrl, String appKeyEnv, String appSecretEnv, Duration keyTtl) {
         public enum Mode {
             NONE,
             KIS
+        }
+
+        public Duration keyTtlOrDefault() {
+            return keyTtl != null ? keyTtl : KisApprovalKeyClient.DEFAULT_TTL;
         }
     }
 

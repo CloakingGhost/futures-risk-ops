@@ -6,6 +6,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ public final class TickBatchWriter<T> implements AutoCloseable {
     private final long flushIntervalMs;
     private final Thread thread;
     private volatile boolean running = true;
+    private volatile Consumer<List<T>> commitListener = b -> { };
 
     private final AtomicLong received = new AtomicLong();
     private final AtomicLong written = new AtomicLong();
@@ -45,12 +47,20 @@ public final class TickBatchWriter<T> implements AutoCloseable {
         this.sink = sink;
         this.maxBatch = maxBatch;
         this.flushIntervalMs = flushIntervalMs;
-        // 데몬이 아닌 스레드다: 웹 서버가 없는 collector 프로세스를 살려 두고, 종료할 때 close() 가 남은 체결을 마저 쓴다
+        // 데몬이 아닌 스레드다: 종료할 때 close() 가 남은 체결을 마저 쓸 때까지 프로세스를 살려 둔다
         this.thread = new Thread(this::loop, threadName);
     }
 
     public void start() {
         thread.start();
+    }
+
+    /**
+     * 배치를 DB 에 넣은 직후(커밋 뒤) 쓰기 스레드에서 불린다(수신→커밋 지연 지표). 중복으로 버려진 건도 배치에 들어 있다.
+     * 넘긴 목록은 돌아온 뒤 비우므로 붙잡아 두지 않는다. 실패해서 버린 배치는 넘기지 않는다.
+     */
+    public void setCommitListener(Consumer<List<T>> l) {
+        this.commitListener = l;
     }
 
     public void offer(T t) {
@@ -97,6 +107,7 @@ public final class TickBatchWriter<T> implements AutoCloseable {
                 int inserted = sink.applyAsInt(batch);
                 written.addAndGet(inserted);
                 duplicates.addAndGet(batch.size() - inserted);
+                notifyCommitted(batch);
                 batch.clear();
                 return;
             } catch (RuntimeException e) {
@@ -105,6 +116,14 @@ public final class TickBatchWriter<T> implements AutoCloseable {
         }
         dropped.addAndGet(batch.size());
         batch.clear();
+    }
+
+    private void notifyCommitted(List<T> batch) {
+        try {
+            commitListener.accept(batch);
+        } catch (RuntimeException e) {
+            LOG.warn("commit listener failed: {}", e.toString());
+        }
     }
 
     /** 큐에 남은 체결을 모두 쓴 뒤 멈춘다. */

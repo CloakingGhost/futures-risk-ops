@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
@@ -62,6 +63,8 @@ public class IngestService implements SmartLifecycle {
         return t;
     });
     private final RealtimeClient client;
+    private final ApprovalKeyProvider keys;
+    private final SessionCalendar calendar;
     private final SessionGate gate;
     private final GapDetector gaps = new GapDetector();
     private final StallWatch stalls;
@@ -75,6 +78,7 @@ public class IngestService implements SmartLifecycle {
     private Boolean gateOpen; // supervisor 스레드에서만
     private List<Subscription> plannedSubscriptions; // supervisor 스레드에서만
     private volatile Optional<YearMonth> frontMonth = Optional.empty();
+    private volatile Consumer<TickTrade> tradeObserver = t -> { };
     private Instant nextMasterRefresh; // supervisor 스레드에서만
     private volatile boolean running;
 
@@ -93,12 +97,13 @@ public class IngestService implements SmartLifecycle {
                          ToIntFunction<List<TickQuote>> quoteSink, InstrumentStore instruments,
                          MasterRefresher.Source masterSource, OkHttpClient http, Map<String, String> env,
                          Clock clock) {
-        ApprovalKeyProvider keys = p.approval().mode() == CollectorProperties.Approval.Mode.KIS
+        this.keys = p.approval().mode() == CollectorProperties.Approval.Mode.KIS
                 ? new KisApprovalKeyClient(http, p.approval().restBaseUrl(), env, p.approval().appKeyEnv(),
-                        p.approval().appSecretEnv())
+                        p.approval().appSecretEnv(), clock, p.approval().keyTtlOrDefault())
                 : ApprovalKeyProvider.simulator();
         TickTrade.Source source = p.source();
         this.clock = clock;
+        this.calendar = calendar;
         this.gate = new SessionGate(calendar, p.session().gating(), p.session().connectLead());
         this.stalls = new StallWatch(p.stallThreshold());
         this.writer = new TickBatchWriter<>(sink, p.batch().queueCapacity(), p.batch().maxSize(),
@@ -128,6 +133,7 @@ public class IngestService implements SmartLifecycle {
             TickTrade t = TickTrade.of(trade, receivedAt, source, calendar);
             gaps.observe(t.symbol(), t.tradeDate(), t.session(), t.qty(), t.accVolume());
             stalls.onTrade(receivedAt);
+            tradeObserver.accept(t);
             writer.offer(t);
         }, backoff, clock);
         client.setStateListener(this::onStateChange);
@@ -297,5 +303,27 @@ public class IngestService implements SmartLifecycle {
 
     public long outOfSessionConnectCount() {
         return outOfSessionConnects.get();
+    }
+
+    /** 수집기 시계(collector.clock-start 가 있으면 그 시각부터 흐른다). 수신 시각도 이 시계다. */
+    public Clock clock() {
+        return clock;
+    }
+
+    /** 세션 캘린더로 본 '지금 장중인가'. 세션 게이트 설정(gating)과 상관없다. */
+    public boolean marketSessionOpen() {
+        return calendar.isOpen(clock.instant());
+    }
+
+    /** 지금 접속키의 만료 시각(가정한 유효기간으로 계산). 아직 받지 않았거나 시뮬레이터면 비어 있다. */
+    public Optional<Instant> approvalKeyExpiresAt() {
+        return keys.expiresAt();
+    }
+
+    /**
+     * 파싱한 체결마다 적재 큐에 넣기 직전, 수신 스레드에서 불린다(체결→수신 지연 지표). start() 전에 한 번 정하고, 오래 막지 않는다.
+     */
+    public void setTradeObserver(Consumer<TickTrade> observer) {
+        this.tradeObserver = observer;
     }
 }

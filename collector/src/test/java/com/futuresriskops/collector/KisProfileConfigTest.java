@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.futuresriskops.collector.instrument.SubscriptionPlanner;
 import com.futuresriskops.collector.session.TestCalendars;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -96,5 +97,28 @@ class KisProfileConfigTest {
         CollectorProperties kis = bind(load("application.yml"), load("application-kis.yml"), extra);
         assertThrows(IllegalStateException.class,
                 () -> CollectorApplication.collectorClock(kis, TestCalendars.standard(), Clock.systemUTC()));
+    }
+
+    @Test
+    void metricsAreServedOnlyOnLoopbackWithHealthAndPrometheus() {
+        Properties base = load("application.yml");
+        assertEquals("127.0.0.1", base.getProperty("server.address"));
+        assertEquals("8081", base.getProperty("server.port"));
+        assertEquals("health,prometheus", base.getProperty("management.endpoints.web.exposure.include"));
+        for (String profile : List.of("application-kis.yml", "application-kis-paper.yml")) {
+            Properties p = load(profile);
+            assertNull(p.getProperty("server.address"), profile + " must not open the port to other machines");
+            assertNull(p.getProperty("management.endpoints.web.exposure.include"), profile);
+        }
+    }
+
+    @Test
+    void approvalKeyTtlDefaultsToTheAssumed24Hours() {
+        assertEquals(Duration.ofHours(24), bind(load("application.yml")).approval().keyTtl());
+        assertEquals(Duration.ofHours(24), bind(load("application.yml"), load("application-kis-paper.yml"))
+                .approval().keyTtlOrDefault());
+        Properties noTtl = load("application.yml");
+        noTtl.remove("collector.approval.key-ttl");
+        assertEquals(Duration.ofHours(24), bind(noTtl).approval().keyTtlOrDefault());
     }
 }
