@@ -61,6 +61,17 @@ class MigrationFilesTest {
         assertTrue(sql.contains("check (source in ('kis', 'kis_paper', 'simulator', 'replay'))"));
     }
 
+    @Test
+    void v5AddsMasterColumnsAndTheQuoteTable() throws IOException {
+        String sql = read("V5__instrument_master_and_tick_quote.sql").toLowerCase();
+        for (String col : List.of("standard_code", "contract_month", "month_class", "master_updated_at")) {
+            assertTrue(sql.contains("alter table instrument add column " + col), "missing column " + col);
+        }
+        assertTrue(sql.contains("create table tick_quote ("));
+        assertTrue(sql.contains("references instrument (id)"));
+        assertTrue(sql.contains("check (source in ('kis', 'kis_paper', 'simulator', 'replay'))"));
+    }
+
     private static int count(String text, String needle) {
         int n = 0;
         for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {

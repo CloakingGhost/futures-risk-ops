@@ -48,10 +48,10 @@ class IngestThroughputTest {
                 "--rate.ticks-per-second=" + RATE, "--pingpong.interval-seconds=1"}, Map.of());
         try (SimulatorServer sim = new SimulatorServer(cfg)) {
             sim.start();
-            TickBatchWriter writer = new TickBatchWriter(repo::insertBatch, 100_000, 500, 200);
+            TickBatchWriter<TickTrade> writer = new TickBatchWriter<>(repo::insertBatch, 100_000, 500, 200);
             writer.start();
             RealtimeClient client = new RealtimeClient(new OkHttpClient(),
-                    "ws://127.0.0.1:" + sim.port() + "/tryitout", List.of("A01612"), ApprovalKeyProvider.simulator(),
+                    "ws://127.0.0.1:" + sim.port() + "/tryitout", RealtimeClient.dayTrades(List.of("A01612")), ApprovalKeyProvider.simulator(),
                     (t, at) -> writer.offer(TickTrade.of(t, at, TickTrade.Source.SIMULATOR, TestCalendars.standard())),
                     new Backoff(Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ZERO, new Random(1)),
                     Clock.systemUTC());

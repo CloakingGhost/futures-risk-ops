@@ -3,6 +3,7 @@ package com.futuresriskops.collector.ws;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.futuresriskops.collector.kis.H0ifasp0Quote;
 import com.futuresriskops.collector.kis.H0ifcnt0Trade;
 import com.futuresriskops.simulator.SimulatorServer;
 import com.futuresriskops.simulator.config.SimulatorConfig;
@@ -53,7 +54,7 @@ class RealtimeClientTest {
 
     private RealtimeClient client(SimulatorServer s, String... symbols) {
         RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + s.port() + "/tryitout",
-                List.of(symbols), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                RealtimeClient.dayTrades(List.of(symbols)), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
                 new Backoff(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ZERO, new Random(1)),
                 Clock.systemUTC());
         open.add(c);
@@ -122,7 +123,7 @@ class RealtimeClientTest {
         SimulatorServer s = simulator("--disconnect.after-seconds=0.5");
         List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
         RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + s.port() + "/tryitout",
-                List.of("A01612"), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                RealtimeClient.dayTrades(List.of("A01612")), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
                 new Backoff(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ofMillis(50), new Random(1)),
                 Clock.systemUTC());
         open.add(c);
@@ -161,7 +162,7 @@ class RealtimeClientTest {
         }
         List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
         RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + port + "/tryitout",
-                List.of("A01612"), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                RealtimeClient.dayTrades(List.of("A01612")), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
                 new Backoff(Duration.ofMillis(50), Duration.ofMillis(200), Duration.ZERO, new Random(1)),
                 Clock.systemUTC());
         open.add(c);
@@ -214,7 +215,7 @@ class RealtimeClientTest {
             OkHttpClient http = new OkHttpClient.Builder().pingInterval(Duration.ofMillis(200)).build();
             List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
             RealtimeClient c = new RealtimeClient(http, "ws://127.0.0.1:" + server.getLocalPort() + "/tryitout",
-                    List.of("A01612"), ApprovalKeyProvider.simulator(), (tr, at) -> received.add(tr),
+                    RealtimeClient.dayTrades(List.of("A01612")), ApprovalKeyProvider.simulator(), (tr, at) -> received.add(tr),
                     new Backoff(Duration.ofSeconds(5), Duration.ofSeconds(5), Duration.ZERO, new Random(1)),
                     Clock.systemUTC());
             open.add(c);
@@ -224,5 +225,51 @@ class RealtimeClientTest {
             await(() -> c.state() == RealtimeClient.State.BACKOFF, "the dead connection is noticed");
             assertEquals(1, c.disconnectCount());
         }
+    }
+
+    @Test
+    void changingSubscriptionsWhileConnectedSwapsSymbolsWithoutReconnecting() throws Exception {
+        SimulatorServer s = simulator();
+        RealtimeClient c = client(s, "A01612");
+        await(() -> received.stream().anyMatch(t -> t.symbol().equals("A01612")), "front month trades");
+        c.setSubscriptions(List.of(new Subscription("H0IFCNT0", "A01612"), new Subscription("H0IFCNT0", "A01703")));
+        await(() -> received.stream().anyMatch(t -> t.symbol().equals("A01703")), "next month trades during overlap");
+        c.setSubscriptions(List.of(new Subscription("H0MFCNT0", "A01703")));
+        Thread.sleep(300); // 해제 응답과 이미 보낸 체결이 지나가길 기다린다
+        received.clear();
+        await(() -> received.size() >= 5, "night trades of the next month");
+        assertTrue(received.stream().allMatch(t -> t.symbol().equals("A01703")), "the old month is unsubscribed");
+        assertEquals(1, c.connectCount(), "no reconnect for a subscription change");
+        assertEquals(2, c.subscriptionChangeCount());
+        assertEquals(0, c.parseErrorCount());
+    }
+
+    @Test
+    void quotesGoToTheQuoteListener() throws Exception {
+        SimulatorServer s = simulator();
+        List<H0ifasp0Quote> quotes = new CopyOnWriteArrayList<>();
+        RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + s.port() + "/tryitout",
+                List.of(new Subscription("H0IFCNT0", "A01612"), new Subscription("H0IFASP0", "A01612")),
+                ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                new Backoff(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ZERO, new Random(1)),
+                Clock.systemUTC());
+        c.setQuoteListener((q, at) -> quotes.add(q));
+        open.add(c);
+        c.start();
+        await(() -> quotes.size() >= 5 && received.size() >= 5, "quotes and trades");
+        assertEquals(quotes.size(), c.quoteCount());
+        assertEquals(0, c.parseErrorCount());
+    }
+
+    @Test
+    void reconnectUsesTheChangedSubscriptions() throws Exception {
+        SimulatorServer s = simulator("--disconnect.after-seconds=0.5");
+        RealtimeClient c = client(s, "A01612");
+        c.setSubscriptions(List.of(new Subscription("H0IFCNT0", "A01703")));
+        await(() -> c.connectCount() >= 2, "a second connection");
+        Thread.sleep(200);
+        received.clear();
+        await(() -> received.size() >= 3, "trades after reconnect");
+        assertTrue(received.stream().allMatch(t -> t.symbol().equals("A01703")));
     }
 }

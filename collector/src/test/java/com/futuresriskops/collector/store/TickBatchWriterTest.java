@@ -23,7 +23,7 @@ class TickBatchWriterTest {
     @Test
     void groupsTradesIntoBatchesAndWritesEverythingOnClose() {
         List<Integer> batchSizes = new CopyOnWriteArrayList<>();
-        TickBatchWriter w = new TickBatchWriter(b -> {
+        TickBatchWriter<TickTrade> w = new TickBatchWriter<>(b -> {
             batchSizes.add(b.size());
             return b.size();
         }, 10_000, 100, 50);
@@ -40,7 +40,7 @@ class TickBatchWriterTest {
 
     @Test
     void countsDuplicatesAndDropsInsteadOfHidingThem() {
-        TickBatchWriter w = new TickBatchWriter(b -> b.size() / 2, 5, 100, 50);
+        TickBatchWriter<TickTrade> w = new TickBatchWriter<>(b -> b.size() / 2, 5, 100, 50);
         for (int i = 1; i <= 8; i++) {
             w.offer(trade(i)); // 시작 전이라 큐 5칸만 찬다
         }
@@ -55,7 +55,7 @@ class TickBatchWriterTest {
     @Test
     void retriesAFailedBatchOnce() {
         List<Integer> calls = new ArrayList<>();
-        TickBatchWriter w = new TickBatchWriter(b -> {
+        TickBatchWriter<TickTrade> w = new TickBatchWriter<>(b -> {
             calls.add(b.size());
             if (calls.size() == 1) {
                 throw new IllegalStateException("db down");

@@ -16,6 +16,17 @@ collector:
   enabled: true
   source: SIMULATOR
   ws-url: ws://127.0.0.1:18080/tryitout
+  # 구독할 종목. AUTO 는 결제월 규칙(3·6·9·12월 둘째 목요일, 휴장이면 앞당김)과 종목 마스터로 근월물을 고르고,
+  # 만기 전날 세션부터 만기일 주간장까지 다음 결제월물을 함께 구독한다. FIXED 는 아래 symbols 를 그대로 쓴다.
+  # 주간장은 체결 H0IFCNT0 + 호가 H0IFASP0, 야간장은 체결 H0MFCNT0 을 구독한다.
+  instruments:
+    mode: AUTO
+    quotes: true
+    master:
+      # 시뮬레이터는 마스터 없이 규칙으로 만든 코드(A01612 형식)를 쓴다. KIS 프로필은 켠다
+      download: false
+      url: https://new.real.download.dws.co.kr/common/master/fo_idx_code_mts.mst.zip
+      refresh-at: "07:30"
   symbols:
     - A01612
   # 끊기면 1, 2, 4, 8 ... 초(최대 30초)에 0~500ms 지터를 더해 기다렸다 다시 붙는다

@@ -1,5 +1,6 @@
 package com.futuresriskops.simulator.kis;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -21,6 +22,12 @@ import java.util.List;
 public final class H0IFCNT0 {
 
     public static final String TR_ID = "H0IFCNT0";
+    /**
+     * KRX 야간선물 실시간종목체결. 공식 샘플(krx_ngt_futures_ccnl.py) columns 는 49개로, 이 클래스의 50개에서
+     * {@link Field#DSCS_BLTR_ACML_QTY} 하나만 빠지고 순서는 같다.
+     */
+    public static final String NIGHT_TR_ID = "H0MFCNT0";
+    public static final int NIGHT_FIELD_COUNT = 49;
     public static final char FIELD_SEPARATOR = '^';
     public static final char FRAME_SEPARATOR = '|';
 
@@ -129,6 +136,14 @@ public final class H0IFCNT0 {
         public String toFrame() {
             return "0" + FRAME_SEPARATOR + TR_ID + FRAME_SEPARATOR + "001" + FRAME_SEPARATOR
                     + String.join(String.valueOf(FIELD_SEPARATOR), values);
+        }
+
+        /** 같은 체결을 야간 TR(H0MFCNT0, 49필드) 프레임으로. */
+        public String toNightFrame() {
+            List<String> v = new ArrayList<>(List.of(values));
+            v.remove(Field.DSCS_BLTR_ACML_QTY.ordinal());
+            return "0" + FRAME_SEPARATOR + NIGHT_TR_ID + FRAME_SEPARATOR + "001" + FRAME_SEPARATOR
+                    + String.join(String.valueOf(FIELD_SEPARATOR), v);
         }
 
         @Override
