@@ -15,7 +15,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -119,6 +121,7 @@ public final class RealtimeClient implements AutoCloseable {
     private final AtomicLong maxRecoveryMs = new AtomicLong(-1);
     private final AtomicLong trades = new AtomicLong();
     private final AtomicLong quotes = new AtomicLong();
+    private final Map<String, AtomicLong> receivedByTr = new ConcurrentHashMap<>();
     private final AtomicLong subscriptionChanges = new AtomicLong();
     private final AtomicLong pingPongs = new AtomicLong();
     private final AtomicLong parseErrors = new AtomicLong();
@@ -382,13 +385,16 @@ public final class RealtimeClient implements AutoCloseable {
             String trId = KisDataFrame.trId(text);
             try {
                 if (H0ifasp0Parser.TR_ID.equals(trId)) {
-                    for (H0ifasp0Quote q : H0ifasp0Parser.parse(text)) {
+                    List<H0ifasp0Quote> parsed = H0ifasp0Parser.parse(text);
+                    countReceived(trId, parsed.size());
+                    for (H0ifasp0Quote q : parsed) {
                         quotes.incrementAndGet();
                         quoteListener.onQuote(q, receivedAt);
                     }
                     return;
                 }
                 List<H0ifcnt0Trade> parsed = H0ifcnt0Parser.parse(text);
+                countReceived(trId, parsed.size());
                 for (H0ifcnt0Trade t : parsed) {
                     trades.incrementAndGet();
                     listener.onTrade(t, receivedAt);
@@ -399,6 +405,10 @@ public final class RealtimeClient implements AutoCloseable {
                     LOG.warn("dropped malformed frame #{}: {}", n, e.getMessage());
                 }
             }
+        }
+
+        private void countReceived(String trId, int records) {
+            receivedByTr.computeIfAbsent(trId, k -> new AtomicLong()).addAndGet(records);
         }
 
         private void onSystem(WebSocket ws, String text) {
@@ -488,6 +498,12 @@ public final class RealtimeClient implements AutoCloseable {
 
     public long quoteCount() {
         return quotes.get();
+    }
+
+    /** 이 TR 로 받아 파싱한 건수(체결·호가 한 건씩). 형식이 틀려 버린 프레임은 세지 않는다. */
+    public long receivedCount(String trId) {
+        AtomicLong n = receivedByTr.get(trId);
+        return n != null ? n.get() : 0;
     }
 
     /** 구독 목록이 바뀐 횟수(롤오버, 주간·야간 전환). */

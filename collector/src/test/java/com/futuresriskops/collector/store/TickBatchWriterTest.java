@@ -69,4 +69,46 @@ class TickBatchWriterTest {
         assertEquals(0, w.droppedCount());
         assertEquals(2, calls.size());
     }
+
+    @Test
+    void tellsTheCommitListenerAboutEveryWrittenBatchButNotAboutDroppedOnes() {
+        List<Integer> committed = new CopyOnWriteArrayList<>();
+        List<Integer> calls = new CopyOnWriteArrayList<>();
+        TickBatchWriter<TickTrade> w = new TickBatchWriter<>(b -> {
+            calls.add(b.size());
+            if (calls.size() <= 2) {
+                throw new IllegalStateException("db down"); // 첫 배치는 두 번 다 실패해서 버린다
+            }
+            return b.size() - 1; // 한 건은 중복
+        }, 100, 100, 50);
+        w.setCommitListener(b -> committed.add(b.size()));
+        w.offer(trade(1));
+        w.start();
+        while (calls.size() < 2) {
+            Thread.onSpinWait();
+        }
+        w.offer(trade(2));
+        w.offer(trade(3));
+        w.close();
+        assertEquals(1, w.droppedCount());
+        assertEquals(List.of(2), committed, "only the batch that reached the DB, duplicates included");
+    }
+
+    @Test
+    void aFailingCommitListenerDoesNotRewriteOrDropTheBatch() {
+        List<Integer> calls = new ArrayList<>();
+        TickBatchWriter<TickTrade> w = new TickBatchWriter<>(b -> {
+            calls.add(b.size());
+            return b.size();
+        }, 100, 100, 50);
+        w.setCommitListener(b -> {
+            throw new IllegalStateException("metrics broke");
+        });
+        w.offer(trade(1));
+        w.start();
+        w.close();
+        assertEquals(1, w.writtenCount());
+        assertEquals(0, w.droppedCount());
+        assertEquals(1, calls.size());
+    }
 }

@@ -78,7 +78,7 @@ class IngestServiceTest {
                 Duration.ofSeconds(20),
                 new CollectorProperties.Session("unused-in-tests", gating, Duration.ofMinutes(1)), stallThreshold,
                 false, new CollectorProperties.Approval(CollectorProperties.Approval.Mode.NONE, "https://unused",
-                        "UNUSED_KEY_ENV", "UNUSED_SECRET_ENV"),
+                        "UNUSED_KEY_ENV", "UNUSED_SECRET_ENV", null),
                 new CollectorProperties.Batch(100_000, 500, 50), null, null);
     }
 

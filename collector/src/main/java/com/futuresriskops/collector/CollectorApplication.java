@@ -29,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 시세 수집기. 시작할 때 Flyway 로 DB 를 맞추고(마이그레이션 파일은 db 모듈),
  * 웹소켓으로 체결(주간 H0IFCNT0, 야간 H0MFCNT0)과 호가(H0IFASP0)를 받아 tick_trade·tick_quote 에 배치로 쌓는다.
  * 장 시간은 세션 캘린더 YAML 이, 구독할 근월물은 결제월 규칙과 KIS 종목 마스터가 정한다.
+ * 지표는 127.0.0.1:8081 의 /actuator/prometheus 로만 내보낸다(docs/metrics.md).
  */
 @SpringBootApplication
 @EnableConfigurationProperties(CollectorProperties.class)
@@ -104,5 +105,12 @@ public class CollectorApplication {
                                 TickQuoteRepository quotes, InstrumentRepository instruments, OkHttpClient http) {
         return new IngestService(props, calendar, repository::insertBatch, quotes::insertBatch, instruments, null,
                 http, System.getenv(), collectorClock(props, calendar, Clock.systemUTC()));
+    }
+
+    /** 지표 9종(docs/metrics.md). 스프링이 Prometheus 레지스트리에 붙이고 /actuator/prometheus 로 내보낸다. */
+    @Bean
+    @ConditionalOnProperty(prefix = "collector", name = "enabled", havingValue = "true")
+    CollectorMetrics collectorMetrics(IngestService ingest) {
+        return new CollectorMetrics(ingest);
     }
 }

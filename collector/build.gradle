@@ -26,6 +26,10 @@ dependencies {
     // 세션 캘린더(config/session-calendar.yaml) 읽기
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml'
     runtimeOnly 'org.postgresql:postgresql'
+    // 지표: /actuator/prometheus 와 /actuator/health 만 127.0.0.1:8081 에 연다(docs/metrics.md)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     // 합성 체결을 내보내는 시뮬레이터를 테스트 안에서 띄운다

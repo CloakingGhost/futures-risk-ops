@@ -79,6 +79,21 @@ SELECT symbol, standard_code, name, contract_month, month_class, expiry_date, ma
 
 모의투자에서 H0IFASP0 가 오는지 본다. 오지 않으면 `quotes=0` 으로 남고 체결 수집은 그대로 된다. 그때는 `--collector.instruments.quotes=false` 로 끈다.
 
+### F. 지표 확인 (PR 6)
+
+A 처럼 시뮬레이터와 collector 를 띄운 뒤 브라우저나 Git Bash 로 연다. 이 PC 안에서만 열린다.
+
+```bash
+curl -s http://127.0.0.1:8081/actuator/health
+curl -s http://127.0.0.1:8081/actuator/prometheus | grep '^collector_'
+```
+
+볼 것:
+- 9개 이름이 모두 나온다(`docs/metrics.md` 표).
+- `collector_messages_received_total{kind="trade",...}` 합이 로그 `trades` 와 같고, 몇 초 뒤 다시 열면 늘어 있다.
+- `collector_ws_state{state="SUBSCRIBED"} 1.0`, 시뮬레이터면 `collector_token_expiry_timestamp_seconds 0.0`, KIS 프로필이면 접속 뒤 24시간 뒤 시각.
+- 시작 시각 설정(B)으로 두 프로그램을 띄우면 두 시계가 띄운 시간 차이만큼 어긋나 `collector_trade_to_receive_seconds` 가 0 으로 몰린다. 지연을 보려면 시작 시각 없이 띄운다.
+
 ## 2부. 오늘 구현 브리핑
 
 - **한 줄 요약**: 사람이 종목 코드를 바꾸지 않아도 근월물을 골라 받고, 만기에는 다음 결제월물을 하루 먼저 겹쳐 받은 뒤 넘어가며, 주간·야간 TR 을 세션에 맞춰 바꾸고 호가까지 쌓는다.
@@ -86,6 +101,7 @@ SELECT symbol, standard_code, name, contract_month, month_class, expiry_date, ma
 - **만기 규칙**: 결제월 3·6·9·12월 둘째 목요일, 휴장이면 앞의 거래일(`FuturesExpiry`). 휴장일은 `config/session-calendar.yaml` 을 본다.
 - **롤오버**: 만기 전날(앞 거래일) 세션부터 만기일 주간장까지 두 월물, 만기일 야간장부터 다음 결제월물만(`NearMonthPlanner`).
 - **마스터를 못 받으면**: DB 에 있던 값 → 그것도 없으면 코드 규칙(`A01` + 연도 끝자리 + 월). 수집은 멈추지 않는다.
+- **지표 9종 (PR 6)**: `/actuator/prometheus` 를 127.0.0.1:8081 에만 연다. 카운터는 기존 값을 읽고, 체결→수신·수신→커밋 지연만 새로 잰다(`CollectorMetrics`). 이름은 `docs/metrics.md` 에 고정했다.
 - **새 테이블·열 (Flyway V5)**: instrument 에 `standard_code`, `contract_month`, `month_class`, `master_updated_at`. `tick_quote`(5단계 호가 배열). 호가는 중복 판별 키가 없어 UNIQUE 를 두지 않았다.
 
 ### 가정과 아직 모르는 것
@@ -95,3 +111,4 @@ SELECT symbol, standard_code, name, contract_month, month_class, expiry_date, ma
 - 마스터 파일은 새벽에 갱신된다고 보고 07:30 에 받는다(`collector.instruments.master.refresh-at`).
 - 웹소켓 구독 해제(tr_type 2)를 KIS 가 공식 샘플처럼 받아 준다.
 - H0IFASP0·H0MFCNT0 의 모의투자 제공 여부.
+- 웹소켓 접속키 유효기간 24시간(지표 `collector_token_expiry_timestamp_seconds` 계산에만 쓴다, `collector.approval.key-ttl`).

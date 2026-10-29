@@ -7,7 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.Optional;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -85,5 +90,35 @@ class KisApprovalKeyClientTest {
         IllegalStateException e = assertThrows(IllegalStateException.class, client::approvalKey);
         assertTrue(e.getMessage().contains("403"));
         assertFalse(e.getMessage().contains("dummy-secret"));
+    }
+
+    @Test
+    void expiryIsTheIssueTimePlusTheAssumedTtlAndClearsOnInvalidate() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"approval_key\":\"dummy-approval\"}"));
+        server.start();
+        Instant issued = Instant.parse("2026-11-02T00:00:00Z");
+        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env, "KIS_APP_KEY",
+                "KIS_APP_SECRET", Clock.fixed(issued, ZoneOffset.UTC), Duration.ofHours(24));
+
+        assertEquals(Optional.empty(), client.expiresAt(), "nothing issued yet");
+        client.approvalKey();
+        assertEquals(Optional.of(issued.plus(Duration.ofHours(24))), client.expiresAt());
+        client.invalidate();
+        assertEquals(Optional.empty(), client.expiresAt());
+    }
+
+    @Test
+    void aFailedRequestLeavesNoExpiry() throws Exception {
+        server.enqueue(new MockResponse().setResponseCode(500));
+        server.start();
+        var client = new KisApprovalKeyClient(new OkHttpClient(), server.url("/").toString(), env, "KIS_APP_KEY",
+                "KIS_APP_SECRET");
+        assertThrows(IllegalStateException.class, client::approvalKey);
+        assertEquals(Optional.empty(), client.expiresAt());
+    }
+
+    @Test
+    void theSimulatorKeyNeverExpires() {
+        assertEquals(Optional.empty(), ApprovalKeyProvider.simulator().expiresAt());
     }
 }

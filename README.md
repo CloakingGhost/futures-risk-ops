@@ -9,7 +9,7 @@ KIS(한국투자증권) Open API로 코스피200 선물 시세를 자기 PC에�
 |---|---|
 | `simulator` | KIS 형식의 가짜 체결·호가를 내보낸다. 키 없이 개발한다 |
 | `db` | Flyway 마이그레이션 |
-| `collector` | 근월물을 골라 실시간 체결·호가를 받아 PostgreSQL 에 쌓는다 |
+| `collector` | 근월물을 골라 실시간 체결·호가를 받아 PostgreSQL 에 쌓는다. 지표는 [docs/metrics.md](docs/metrics.md) |
 | `risk` | 증거금·마진콜 계산(만드는 중) |
 
 ## 로드맵
