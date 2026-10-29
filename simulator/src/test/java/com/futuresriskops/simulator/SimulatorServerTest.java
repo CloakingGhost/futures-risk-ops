@@ -233,6 +233,59 @@ class SimulatorServerTest {
         assertEquals(0, c.collectFor(500).stream().filter(m -> isTrade(m.text)).count());
     }
 
+    private static long accVolume(Msg m) {
+        return Long.parseLong(H0IFCNT0.parseFrame(m.text).get(Field.ACML_VOL));
+    }
+
+    private static long qty(Msg m) {
+        return Long.parseLong(H0IFCNT0.parseFrame(m.text).get(Field.LAST_CNQN));
+    }
+
+    @Test
+    void feedKeepsTradingWhileNobodyIsSubscribedSoTheGapShowsInAccVolume() throws Exception {
+        SimulatorServer s = server();
+        TestClient c = connect(s);
+        c.subscribe("101S12");
+        nextTrade(c);
+        c.unsubscribe("101S12");
+        long lastAcc = -1;
+        for (int i = 0; i < 500; i++) {
+            Msg m = c.next(1000);
+            assertNotNull(m);
+            if (isTrade(m.text)) {
+                lastAcc = accVolume(m);
+            } else if (m.text.contains("UNSUBSCRIBE SUCCESS")) {
+                break;
+            }
+        }
+        Thread.sleep(300); // 초당 100건이므로 이 사이 약 30건이 구독자 없이 지나간다
+        c.drain();
+        c.subscribe("101S12");
+        Msg first = nextTrade(c);
+        assertTrue(accVolume(first) - lastAcc > qty(first),
+                "acc_volume should jump over the trades made while unsubscribed");
+    }
+
+    @Test
+    void resendOnSubscribeRepeatsRecentTradesTheOtherClientAlreadyHad() throws Exception {
+        SimulatorServer s = server("--resend.on-subscribe=3");
+        TestClient a = connect(s);
+        a.subscribe("101S12");
+        Set<Long> seenByA = new HashSet<>();
+        for (int i = 0; i < 10; i++) {
+            seenByA.add(accVolume(nextTrade(a)));
+        }
+        TestClient b = connect(s);
+        b.subscribe("101S12");
+        long resent = accVolume(nextTrade(b));
+        for (Msg m : a.collectFor(300)) {
+            if (isTrade(m.text)) {
+                seenByA.add(accVolume(m));
+            }
+        }
+        assertTrue(seenByA.contains(resent), "the first trade for a new subscriber is an old one");
+    }
+
     @Test
     void badRequestsGetErrorsAndKeepTheConnectionOpen() throws Exception {
         SimulatorServer s = server();

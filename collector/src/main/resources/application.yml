@@ -18,7 +18,23 @@ collector:
   ws-url: ws://127.0.0.1:18080/tryitout
   symbols:
     - A01612
-  max-reconnect-backoff: 30s
+  # 끊기면 1, 2, 4, 8 ... 초(최대 30초)에 0~500ms 지터를 더해 기다렸다 다시 붙는다
+  reconnect:
+    initial-backoff: 1s
+    max-backoff: 30s
+    max-jitter: 500ms
+  # 이 간격으로 웹소켓 ping 을 보낸다. 다음 ping 까지 pong 이 없으면(최대 약 2배 시간) 죽은 연결로 보고 다시 붙는다
+  ws-ping-interval: 20s
+  session:
+    # 장 시간 캘린더. 기본은 jar 에 넣은 저장소의 config/session-calendar.yaml. 다른 파일은 file:경로
+    calendar: classpath:session-calendar.yaml
+    # 시뮬레이터는 장 시간과 상관없이 붙는다. KIS 프로필은 true(세션 시간에만 접속)
+    gating: false
+    connect-lead: 1m
+  # 구독 중(세션 안)에 이 시간 넘게 체결이 없으면 수신 공백으로 경고한다. 시뮬레이터는 체결이 잦아 짧게 둔다
+  stall-threshold: 5s
+  # true 면 시작할 때 쌓인 tick_trade 의 거래일·세션을 캘린더 규칙으로 다시 계산한다(한 번만 켜서 쓴다)
+  backfill-trade-dates: false
   approval:
     mode: NONE
     rest-base-url: https://openapi.koreainvestment.com:9443

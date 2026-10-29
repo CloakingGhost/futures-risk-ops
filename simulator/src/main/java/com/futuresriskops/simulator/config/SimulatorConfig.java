@@ -30,7 +30,8 @@ public record SimulatorConfig(
         Delay delay,
         Disconnect disconnect,
         Stall stall,
-        PingPong pingpong) {
+        PingPong pingpong,
+        Resend resend) {
 
     /** @param port 0 이면 임의의 빈 포트 */
     public record Server(String host, int port, int maxSubscriptions) {
@@ -100,6 +101,15 @@ public record SimulatorConfig(
     public record PingPong(double intervalSeconds) {
     }
 
+    /**
+     * 구독할 때 그 종목의 최근 체결을 다시 보낸다. 재접속한 클라이언트가 이미 받은 체결을 또 받는 상황을 만든다
+     * (중복 적재 방지 확인용). 실제 KIS 가 이렇게 하는지는 확인하지 않았다.
+     *
+     * @param onSubscribe 다시 보낼 최근 체결 수(0 이면 끔)
+     */
+    public record Resend(int onSubscribe) {
+    }
+
     // ------------------------------------------------------------------ 옵션 정의
 
     /** 옵션 하나의 키·기본값·설명. {@code --help} 와 문서가 이 목록을 그대로 쓴다. */
@@ -129,7 +139,8 @@ public record SimulatorConfig(
             new Option("stall.after-seconds", "0", "seconds after connect before sending silently stops"),
             new Option("stall.duration-seconds", "0", "how long sending stays stopped; 0 = stall off"),
             new Option("stall.repeat", "false", "repeat run-then-stall cycles"),
-            new Option("pingpong.interval-seconds", "30", "interval of PINGPONG messages; 0 = never"));
+            new Option("pingpong.interval-seconds", "30", "interval of PINGPONG messages; 0 = never"),
+            new Option("resend.on-subscribe", "0", "on subscribe, send again the last N trades of that symbol; 0 = off"));
 
     // ------------------------------------------------------------------ 로딩
 
@@ -188,7 +199,8 @@ public record SimulatorConfig(
                 dbl(v, "stall.duration-seconds", 0, 86_400),
                 bool(v, "stall.repeat"));
         PingPong ping = new PingPong(dbl(v, "pingpong.interval-seconds", 0, 86_400));
-        return new SimulatorConfig(server, price, rate, delay, disconnect, stall, ping);
+        Resend resend = new Resend((int) lng(v, "resend.on-subscribe", 0, 10_000));
+        return new SimulatorConfig(server, price, rate, delay, disconnect, stall, ping, resend);
     }
 
     /** 사람이 읽는 유효 설정 요약(시작할 때 출력). */
@@ -206,6 +218,7 @@ public record SimulatorConfig(
         lines.add("stall         after=" + stall.afterSeconds() + "s duration=" + stall.durationSeconds()
                 + "s repeat=" + stall.repeat());
         lines.add("pingpong      every " + pingpong.intervalSeconds() + "s");
+        lines.add("resend        last " + resend.onSubscribe() + " trades on subscribe");
         return String.join(System.lineSeparator(), lines);
     }
 

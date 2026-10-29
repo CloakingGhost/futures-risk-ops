@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +29,8 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>클라이언트는 KIS 와 같은 JSON 구독 요청을 보낸다(approval_key 는 검사하지 않는다).
  * 종목 코드는 아무 문자열이나 받고, 처음 구독될 때 그 종목의 가짜 시세 피드를 만든다.
+ * 피드는 한 번 만들어지면 구독자가 없어도 계속 체결을 만든다(실제 시장처럼). 그래서 끊긴 동안의 체결은
+ * 재접속한 클라이언트가 누적거래량의 빈틈으로 알아챌 수 있다.
  * 주문·계좌·실제 인증 기능은 없다.
  */
 public final class SimulatorServer implements WebSocketServer.Listener, AutoCloseable {
@@ -162,7 +165,7 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         // 응답을 먼저 보낸 뒤 피드에 붙인다: 응답보다 체결이 먼저 가지 않게
         conn.sendText(KisFrames.ok(trId, symbol, KisFrames.MSG_SUBSCRIBE_OK));
         if (s.subscriptions().add(symbol)) {
-            feeds.computeIfAbsent(symbol, this::startFeed).subscribers.add(s);
+            feeds.computeIfAbsent(symbol, this::startFeed).attach(s);
             LOG.log(System.Logger.Level.INFO, "subscribed {0} to {1}", conn.remote(), symbol);
         }
     }
@@ -190,6 +193,8 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         final String symbol;
         final TradeSource model;
         final CopyOnWriteArraySet<ClientSession> subscribers = new CopyOnWriteArraySet<>();
+        /** resend.on-subscribe 용 최근 체결 프레임(오래된 것부터). */
+        private final ArrayDeque<String> recent = new ArrayDeque<>();
         private final Random rng;
         private volatile boolean stopped;
 
@@ -215,12 +220,7 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
 
         private void tick(long dueNanos) {
             try {
-                if (!subscribers.isEmpty()) {
-                    String frame = model.next(LocalTime.now(clock)).toFrame();
-                    for (ClientSession s : subscribers) {
-                        s.deliver(frame);
-                    }
-                }
+                publish(model.next(LocalTime.now(clock)).toFrame());
             } catch (RuntimeException e) {
                 LOG.log(System.Logger.Level.ERROR, "tick failed for " + symbol, e);
             } finally {
@@ -229,6 +229,28 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
                 long interval = (long) (mean * (1 + jitter * (2 * rng.nextDouble() - 1)));
                 scheduleNext(dueNanos + Math.max(1, interval));
             }
+        }
+
+        /** 체결 하나를 구독자에게 넘긴다. attach 와 같은 잠금을 써서 새 구독자가 체결을 건너뛰지 않게 한다. */
+        private synchronized void publish(String frame) {
+            int keep = cfg.resend().onSubscribe();
+            if (keep > 0) {
+                recent.addLast(frame);
+                while (recent.size() > keep) {
+                    recent.removeFirst();
+                }
+            }
+            for (ClientSession s : subscribers) {
+                s.deliver(frame);
+            }
+        }
+
+        /** 구독자를 붙인다. resend.on-subscribe 가 켜져 있으면 최근 체결을 먼저 다시 보낸다. */
+        synchronized void attach(ClientSession s) {
+            for (String frame : recent) {
+                s.deliver(frame);
+            }
+            subscribers.add(s);
         }
 
         void stop() {

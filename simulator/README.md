@@ -51,6 +51,7 @@ JDK 17 만으로 동작합니다(외부 라이브러리 없음). 웹소켓 서�
 | `stall.duration-seconds` | 0 | how long sending stays stopped; 0 = stall off |
 | `stall.repeat` | false | repeat run-then-stall cycles |
 | `pingpong.interval-seconds` | 30 | interval of PINGPONG messages; 0 = never |
+| `resend.on-subscribe` | 0 | on subscribe, send again the last N trades of that symbol; 0 = off |
 
 ### 속도·끊김·지연 레시피
 
@@ -64,12 +65,15 @@ JDK 17 만으로 동작합니다(외부 라이브러리 없음). 웹소켓 서�
 | 체결 1000건당 평균 1번 끊김 | `--disconnect.probability-per-tick=0.001` |
 | 연결은 살아 있는데 10초 뒤 5초간 데이터가 안 옴 | `--stall.after-seconds=10 --stall.duration-seconds=5` |
 | 위 중단을 반복 | `--stall.after-seconds=10 --stall.duration-seconds=5 --stall.repeat=true` |
+| 재구독할 때 최근 체결 30건을 다시 보냄 (중복 적재 방지 확인) | `--disconnect.after-seconds=10 --resend.on-subscribe=30` |
 | 같은 가격 경로 재현 | `--price.seed=42` |
 
 - 지연은 체결 **전송**만 늦춥니다(체결 시각 필드는 그대로). 전송 순서는 항상 유지됩니다.
 - 끊김·지연·중단의 시간 기준은 **연결마다 연결 시각**부터이고, 재접속하면 처음부터 다시 셉니다.
 - 조용한 중단은 멈춘 동안의 체결을 **버립니다**(재전송 없음). 클라이언트는 연결이 살아 있어도 데이터가 끊긴 것을 스스로 알아채야 합니다.
 - 시세는 종목 단위로 하나를 공유합니다. 같은 종목을 구독한 연결들은 같은 체결을 받습니다.
+- 종목 피드는 처음 구독될 때 시작해 **구독자가 없어도 계속 체결을 만듭니다**(실제 시장처럼). 그래서 끊겼다 다시 붙으면 그사이 체결이 누적거래량의 빈틈으로 보입니다.
+- `resend.on-subscribe` 는 구독 직후 그 종목의 최근 N건을 먼저 보냅니다. 이미 받은 체결이 다시 오는 상황을 만들 뿐이고, 실제 KIS 가 이렇게 하는지는 확인하지 않았습니다.
 
 ## 메시지 형식
 

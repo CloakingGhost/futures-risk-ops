@@ -7,14 +7,14 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** tick_trade 적재. 같은 체결(종목·거래일·세션·누적거래량)은 ON CONFLICT DO NOTHING 으로 한 번만 남긴다. */
+/** tick_trade 적재. 같은 체결(종목·거래일·세션·출처·누적거래량, Flyway V3)은 ON CONFLICT DO NOTHING 으로 한 번만 남긴다. */
 public class TickTradeRepository {
 
     private static final String INSERT_TRADE = """
             INSERT INTO tick_trade (instrument_id, traded_at, received_at, trade_date, session,
                                     price, qty, acc_volume, open_interest, source)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (instrument_id, trade_date, session, acc_volume) DO NOTHING
+            ON CONFLICT (instrument_id, trade_date, session, source, acc_volume) DO NOTHING
             """;
 
     private final JdbcTemplate jdbc;

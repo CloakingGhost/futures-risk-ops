@@ -6,11 +6,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.futuresriskops.collector.kis.H0ifcnt0Trade;
 import com.futuresriskops.simulator.SimulatorServer;
 import com.futuresriskops.simulator.config.SimulatorConfig;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -45,7 +54,8 @@ class RealtimeClientTest {
     private RealtimeClient client(SimulatorServer s, String... symbols) {
         RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + s.port() + "/tryitout",
                 List.of(symbols), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
-                Duration.ofMillis(500), Clock.systemUTC());
+                new Backoff(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ZERO, new Random(1)),
+                Clock.systemUTC());
         open.add(c);
         c.start();
         return c;
@@ -105,5 +115,114 @@ class RealtimeClientTest {
             return !symbols.isEmpty();
         }, "trades for the accepted symbol");
         assertEquals(Set.of("A01612"), symbols);
+    }
+
+    @Test
+    void reachesSubscribedAndMeasuresRecoveryAfterEachDrop() throws Exception {
+        SimulatorServer s = simulator("--disconnect.after-seconds=0.5");
+        List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
+        RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + s.port() + "/tryitout",
+                List.of("A01612"), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                new Backoff(Duration.ofMillis(100), Duration.ofMillis(500), Duration.ofMillis(50), new Random(1)),
+                Clock.systemUTC());
+        open.add(c);
+        c.setStateListener((from, to, at) -> states.add(to));
+        c.start();
+        await(() -> c.recoveryCount() >= 3, "three recoveries");
+        assertTrue(c.disconnectCount() >= 3);
+        assertTrue(c.maxRecoveryMillis() >= 0 && c.maxRecoveryMillis() < 30_000, "recovery within 30s");
+        // CONNECTING → SUBSCRIBED → BACKOFF → CONNECTING → SUBSCRIBED ...
+        assertEquals(List.of(RealtimeClient.State.CONNECTING, RealtimeClient.State.SUBSCRIBED,
+                RealtimeClient.State.BACKOFF, RealtimeClient.State.CONNECTING, RealtimeClient.State.SUBSCRIBED),
+                states.subList(0, 5));
+    }
+
+    @Test
+    void deactivatedClientClosesAndDoesNotReconnectUntilActivatedAgain() throws Exception {
+        SimulatorServer s = simulator();
+        RealtimeClient c = client(s, "A01612");
+        await(() -> c.state() == RealtimeClient.State.SUBSCRIBED, "subscribed");
+        c.setActive(false);
+        await(() -> c.state() == RealtimeClient.State.IDLE, "idle");
+        await(() -> s.sessionCount() == 0, "server sees the connection closed");
+        Thread.sleep(500);
+        assertEquals(1, c.connectCount(), "no reconnect while inactive");
+        assertEquals(0, c.disconnectCount(), "a requested close is not a disconnect");
+        c.setActive(true);
+        await(() -> c.state() == RealtimeClient.State.SUBSCRIBED, "subscribed again");
+        assertEquals(2, c.connectCount());
+    }
+
+    @Test
+    void retriesWithBackoffWhileTheServerIsDown() throws Exception {
+        int port;
+        try (ServerSocket free = new ServerSocket(0)) {
+            port = free.getLocalPort(); // 닫힌 포트: 아무도 받지 않는다
+        }
+        List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
+        RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + port + "/tryitout",
+                List.of("A01612"), ApprovalKeyProvider.simulator(), (t, at) -> received.add(t),
+                new Backoff(Duration.ofMillis(50), Duration.ofMillis(200), Duration.ZERO, new Random(1)),
+                Clock.systemUTC());
+        open.add(c);
+        c.setStateListener((from, to, at) -> states.add(to));
+        c.start();
+        await(() -> states.stream().filter(x -> x == RealtimeClient.State.BACKOFF).count() >= 3, "three backoffs");
+        assertEquals(0, c.connectCount());
+        assertEquals(-1, c.lastRecoveryMillis(), "never subscribed, so nothing to recover");
+    }
+
+    /**
+     * 와이파이가 끊긴 것처럼: 핸드셰이크와 구독 응답까지 한 뒤 TCP 는 열어 둔 채 아무것도 보내지도 답하지도 않는 서버.
+     * ping 을 켜 두면 pong 이 오지 않아 클라이언트가 죽은 연결로 보고 끊어야 한다.
+     */
+    @Test
+    void pingWithoutPongMarksASilentlyDeadConnectionAsLost() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread t = new Thread(() -> {
+                try {
+                    Socket s = server.accept();
+                    open.add(s);
+                    BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
+                    String key = null;
+                    for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) {
+                        if (line.toLowerCase().startsWith("sec-websocket-key:")) {
+                            key = line.substring(line.indexOf(':') + 1).trim();
+                        }
+                    }
+                    String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest(
+                            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.ISO_8859_1)));
+                    OutputStream out = s.getOutputStream();
+                    String crlf = "\r\n";
+                    out.write(("HTTP/1.1 101 Switching Protocols" + crlf + "Upgrade: websocket" + crlf
+                            + "Connection: Upgrade" + crlf + "Sec-WebSocket-Accept: " + accept + crlf + crlf)
+                            .getBytes(StandardCharsets.ISO_8859_1));
+                    byte[] ack = ("{\"header\":{\"tr_id\":\"H0IFCNT0\",\"tr_key\":\"A01612\"},"
+                            + "\"body\":{\"rt_cd\":\"0\",\"msg1\":\"SUBSCRIBE SUCCESS\"}}").getBytes(StandardCharsets.UTF_8);
+                    out.write(0x81); // FIN + 텍스트 프레임
+                    out.write(ack.length); // 125 바이트 이하
+                    out.write(ack);
+                    out.flush();
+                    // 이후로는 읽지도 쓰지도 않는다(ping 에 pong 이 없다)
+                } catch (Exception ignored) {
+                    // 테스트 종료로 닫힘
+                }
+            }, "silent-server");
+            t.setDaemon(true);
+            t.start();
+
+            OkHttpClient http = new OkHttpClient.Builder().pingInterval(Duration.ofMillis(200)).build();
+            List<RealtimeClient.State> states = new CopyOnWriteArrayList<>();
+            RealtimeClient c = new RealtimeClient(http, "ws://127.0.0.1:" + server.getLocalPort() + "/tryitout",
+                    List.of("A01612"), ApprovalKeyProvider.simulator(), (tr, at) -> received.add(tr),
+                    new Backoff(Duration.ofSeconds(5), Duration.ofSeconds(5), Duration.ZERO, new Random(1)),
+                    Clock.systemUTC());
+            open.add(c);
+            c.setStateListener((from, to, at) -> states.add(to));
+            c.start();
+            await(() -> states.contains(RealtimeClient.State.SUBSCRIBED), "subscribed");
+            await(() -> c.state() == RealtimeClient.State.BACKOFF, "the dead connection is noticed");
+            assertEquals(1, c.disconnectCount());
+        }
     }
 }

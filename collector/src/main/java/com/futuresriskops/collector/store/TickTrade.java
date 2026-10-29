@@ -1,7 +1,7 @@
 package com.futuresriskops.collector.store;
 
 import com.futuresriskops.collector.kis.H0ifcnt0Trade;
-import com.futuresriskops.collector.session.TemporaryTradeDateRule;
+import com.futuresriskops.collector.session.SessionCalendar;
 import com.futuresriskops.collector.session.TradingSession;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -14,13 +14,17 @@ public record TickTrade(String symbol, Instant tradedAt, Instant receivedAt, Loc
 
     /** tick_trade.source 허용값. */
     public enum Source {
+        /** KIS 실전 */
         KIS,
+        /** KIS 모의투자(Flyway V4) */
+        KIS_PAPER,
         SIMULATOR,
         REPLAY
     }
 
-    public static TickTrade of(H0ifcnt0Trade t, Instant receivedAt, Source source) {
-        TemporaryTradeDateRule.Placement p = TemporaryTradeDateRule.place(t.bsopHour(), receivedAt);
+    /** 체결 일시·거래일·세션은 세션 캘린더가 정한다. */
+    public static TickTrade of(H0ifcnt0Trade t, Instant receivedAt, Source source, SessionCalendar calendar) {
+        SessionCalendar.Placement p = calendar.place(t.bsopHour(), receivedAt);
         return new TickTrade(t.symbol(), p.tradedAt().toInstant(), receivedAt, p.tradeDate(), p.session(),
                 t.price(), t.qty(), t.accVolume(), t.openInterest(), source);
     }
