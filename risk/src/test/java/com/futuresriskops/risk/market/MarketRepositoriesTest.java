@@ -29,6 +29,7 @@ class MarketRepositoriesTest {
     void setUp() {
         jdbc = new JdbcTemplate(PostgresTestSupport.migrated(PG));
         jdbc.update("DELETE FROM tick_trade");
+        jdbc.update("DELETE FROM tick_quote");
         jdbc.update("DELETE FROM instrument");
         latest = new LatestTradeRepository(jdbc);
         oi = new OpenInterestHistory(jdbc);

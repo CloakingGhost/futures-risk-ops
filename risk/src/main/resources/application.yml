@@ -8,6 +8,22 @@ spring:
     # 마이그레이션은 collector 만 실행한다(risk/CLAUDE.md).
     enabled: false
 
+# 이 PC 안에서만 보이게 127.0.0.1 에 묶는다. 컨테이너 안에서는 SERVER_ADDRESS=0.0.0.0 으로 바꾼다(compose·Helm).
+# collector(8081)와 겹치지 않게 8082 를 쓴다.
+server:
+  address: 127.0.0.1
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
 risk:
   # 읽을 데이터 출처(tick_trade.source). collector 와 같은 값을 쓴다: SIMULATOR, KIS_PAPER, KIS, REPLAY
   source: SIMULATOR

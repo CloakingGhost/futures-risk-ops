@@ -19,6 +19,10 @@ dependencies {
     // collector 가 쌓은 tick_trade·instrument 를 읽기만 한다. 마이그레이션은 collector 가 한다(risk 는 Flyway 를 켜지 않는다).
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
     runtimeOnly 'org.postgresql:postgresql'
+    // 상태 확인(/actuator/health). Day 7 Helm probe 가 쓴다
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // OpenAPI 문서(/v3/api-docs)와 화면(/swagger-ui.html). Spring Boot 가 버전을 관리하지 않아 3.3 과 맞는 버전을 적는다
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     // 테스트에서만 db 모듈 마이그레이션으로 임시 PostgreSQL 에 스키마를 만든다. Docker 가 없으면 그 테스트만 건너뛴다.

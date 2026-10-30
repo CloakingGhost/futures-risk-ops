@@ -45,7 +45,7 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 | `simulator` | 있음 | KIS 형식의 가짜 체결(주간 H0IFCNT0, 야간 H0MFCNT0)과 호가(H0IFASP0)를 웹소켓으로 송출. 속도·지연·끊김·중단·시작 시각을 설정으로 바꾼다 |
 | `db` | 있음 | Flyway 마이그레이션 파일만 담는다. 실행은 collector 한 곳에서만 한다. risk 는 Flyway 를 켜지 않는다 |
 | `collector` | 있음 | 시작할 때 Flyway 적용, KIS 종목 마스터를 받아 instrument Upsert(시작 + 매일 07:30), 근월물 자동 선택과 만기 롤오버(만기 전날부터 두 월물 겹침 구독), 세션별 TR 전환(주간 H0IFCNT0·H0IFASP0, 야간 H0MFCNT0), 웹소켓 수신·PINGPONG, 재접속 상태 머신(지수 백오프 + 지터, 재구독), 파싱, 세션 캘린더로 거래일·세션 계산, 누락·수신 공백 감지, 장 시간에만 접속(KIS 프로필), tick_trade·tick_quote 배치 적재(체결 중복은 ON CONFLICT DO NOTHING), 지표 9종(`/actuator/prometheus`, 127.0.0.1:8081) |
-| `risk` | 뼈대 | 베이시스·미결제약정·증거금·마진콜 계산, REST API. 지금은 빈 스프링 앱 |
+| `risk` | 있음 | collector 가 쌓은 tick_trade 를 읽기만 한다(Flyway 끔). 단일 선물 가상 포지션의 손익·위탁/유지증거금·마진콜·마진콜 가격, 베이시스(KIS 체결 메시지 값), 거래일별 미결제약정. REST API 3개와 health, OpenAPI(127.0.0.1:8082, [docs/risk-api.md](docs/risk-api.md)) |
 
 ```
 ./gradlew test                       # 전체 테스트 (커밋 전 필수)
@@ -53,6 +53,7 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 ./gradlew :simulator:run --args="--rate.ticks-per-second=20"   # 시뮬레이터 실행
 ./gradlew :simulator:run --args="--help"                       # 설정 옵션 목록
 ./gradlew :collector:bootRun                                   # 시뮬레이터에 붙어 수집 (DB 환경변수 필요)
+./gradlew :risk:bootRun                                        # 리스크 API (DB 환경변수 필요, 127.0.0.1:8082)
 ```
 
 - 선물만 다룬다. 옵션은 v0.1 범위에서 뺐다(README 로드맵).

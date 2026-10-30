@@ -15,8 +15,21 @@ public final class PostgresTestSupport {
         return new PostgreSQLContainer<>("postgres:16");
     }
 
+    /** 스프링 앱 테스트가 {@code spring.datasource.*} 로 넘길 접속 정보. 컨테이너가 만든 임시 계정이다. */
+    public static String url(PostgreSQLContainer<?> pg) {
+        return pg.getJdbcUrl();
+    }
+
+    public static String username(PostgreSQLContainer<?> pg) {
+        return pg.getUsername();
+    }
+
+    public static String password(PostgreSQLContainer<?> pg) {
+        return pg.getPassword();
+    }
+
     public static DriverManagerDataSource migrated(PostgreSQLContainer<?> pg) {
-        DriverManagerDataSource ds = new DriverManagerDataSource(pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
+        DriverManagerDataSource ds = new DriverManagerDataSource(url(pg), username(pg), password(pg));
         Flyway.configure().dataSource(ds).locations("classpath:db/migration").load().migrate();
         return ds;
     }
