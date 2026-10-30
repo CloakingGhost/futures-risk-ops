@@ -23,6 +23,10 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // MarginCasesTest 가 사례 표를 그대로 읽는다
+    def cases = rootProject.file('docs/margin-cases.md')
+    inputs.file(cases)
+    systemProperty 'marginCasesFile', cases.absolutePath
     testLogging {
         events 'failed'
         exceptionFormat 'full'
