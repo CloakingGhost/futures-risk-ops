@@ -3,13 +3,21 @@ package com.futuresriskops.collector.ws;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.futuresriskops.collector.kis.H0ifasp0Parser;
+import com.futuresriskops.collector.kis.H0ifasp0Quote;
 import com.futuresriskops.collector.kis.H0ifcnt0Parser;
 import com.futuresriskops.collector.kis.H0ifcnt0Trade;
+import com.futuresriskops.collector.kis.KisDataFrame;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -27,7 +35,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * KIS 실시간 웹소켓 클라이언트(H0IFCNT0 체결). 시뮬레이터와 KIS 에 같은 코드로 붙고, 다른 것은 접속 주소와 접속키뿐이다.
+ * KIS 실시간 웹소켓 클라이언트. 체결(주간 H0IFCNT0, 야간 H0MFCNT0)과 호가(H0IFASP0)를 받는다.
+ * 시뮬레이터와 KIS 에 같은 코드로 붙고, 다른 것은 접속 주소와 접속키뿐이다.
  *
  * <p>연결은 상태 머신으로 다룬다. 상태가 바뀔 때마다 로그 한 줄을 남긴다.
  * <pre>
@@ -38,7 +47,9 @@ import org.slf4j.LoggerFactory;
  *   (어느 상태든) ──setActive(false)·close()──▶ IDLE
  * </pre>
  * <ul>
- *   <li>CONNECTING 에 들어가면 접속키를 받고 연결을 열며, 열리면 설정된 종목을 모두 구독한다. 재접속할 때도 같은 구독을 다시 보낸다.</li>
+ *   <li>CONNECTING 에 들어가면 접속키를 받고 연결을 열며, 열리면 지금 구독 목록을 모두 보낸다. 재접속할 때도 같은 목록을 다시 보낸다.</li>
+ *   <li>구독 목록은 {@link #setSubscriptions} 로 바꾼다(근월물 롤오버, 주간·야간 TR 전환). 연결 중이면 빠진 것은 해제(tr_type 2),
+ *       새것은 등록(tr_type 1)만 보내고 연결은 끊지 않는다.</li>
  *   <li>BACKOFF 는 {@link Backoff}(지수 백오프 + 지터)만큼 기다린 뒤 CONNECTING 으로 간다. SUBSCRIBED 가 되면 대기 시간을 처음으로 되돌린다.</li>
  *   <li>IDLE 은 세션 밖(세션 캘린더가 끄라고 할 때)과 종료 상태다. 이때는 다시 붙지 않는다.</li>
  *   <li>SUBSCRIBED 에서 끊긴 뒤 다시 SUBSCRIBED 가 될 때까지 걸린 시간을 복구 시간으로 잰다.</li>
@@ -64,6 +75,12 @@ public final class RealtimeClient implements AutoCloseable {
         void onTrade(H0ifcnt0Trade trade, Instant receivedAt);
     }
 
+    /** 수신 시각과 함께 호가를 넘겨받는 곳. 수신 스레드에서 불리므로 오래 막지 않는다. */
+    @FunctionalInterface
+    public interface QuoteListener {
+        void onQuote(H0ifasp0Quote quote, Instant receivedAt);
+    }
+
     /** 상태가 바뀔 때 control 스레드에서 불린다. 오래 막지 않는다. */
     @FunctionalInterface
     public interface StateListener {
@@ -72,7 +89,6 @@ public final class RealtimeClient implements AutoCloseable {
 
     private final OkHttpClient http;
     private final String url;
-    private final List<String> symbols;
     private final ApprovalKeyProvider keys;
     private final TradeListener listener;
     private final Backoff backoff;
@@ -84,12 +100,16 @@ public final class RealtimeClient implements AutoCloseable {
         return t;
     });
     private volatile StateListener stateListener = (from, to, at) -> { };
+    private volatile QuoteListener quoteListener = (q, at) -> { };
 
     // control 스레드에서만 바꾼다. 다른 스레드는 volatile 로 읽기만 한다.
     private volatile State state = State.IDLE;
     private volatile long generation;
     private boolean active;
     private WebSocket current;
+    private volatile List<Subscription> subscriptions;
+    private WebSocket openSocket;     // 열려서 구독을 보낸 연결(control 스레드에서만)
+    private String openApprovalKey;
     private ScheduledFuture<?> pendingConnect;
     private Instant lostAt;
     private volatile boolean closed;
@@ -100,27 +120,55 @@ public final class RealtimeClient implements AutoCloseable {
     private final AtomicLong lastRecoveryMs = new AtomicLong(-1);
     private final AtomicLong maxRecoveryMs = new AtomicLong(-1);
     private final AtomicLong trades = new AtomicLong();
+    private final AtomicLong quotes = new AtomicLong();
+    private final Map<String, AtomicLong> receivedByTr = new ConcurrentHashMap<>();
+    private final AtomicLong subscriptionChanges = new AtomicLong();
     private final AtomicLong pingPongs = new AtomicLong();
     private final AtomicLong parseErrors = new AtomicLong();
     private final AtomicLong subscribeErrors = new AtomicLong();
 
-    public RealtimeClient(OkHttpClient http, String url, List<String> symbols, ApprovalKeyProvider keys,
+    /** @param subscriptions 처음 구독 목록. 비어 있으면 {@link #setSubscriptions} 로 채운 뒤 붙는다 */
+    public RealtimeClient(OkHttpClient http, String url, List<Subscription> subscriptions, ApprovalKeyProvider keys,
                           TradeListener listener, Backoff backoff, Clock clock) {
-        if (symbols.isEmpty()) {
-            throw new IllegalArgumentException("at least one symbol is required");
-        }
         this.http = http;
         this.url = url;
-        this.symbols = List.copyOf(symbols);
+        this.subscriptions = List.copyOf(subscriptions);
         this.keys = keys;
         this.listener = listener;
         this.backoff = backoff;
         this.clock = clock;
     }
 
+    /** 종목마다 주간 체결(H0IFCNT0)만 구독하는 목록(Day 2 까지의 동작). */
+    public static List<Subscription> dayTrades(List<String> symbols) {
+        if (symbols.isEmpty()) {
+            throw new IllegalArgumentException("at least one symbol is required");
+        }
+        return symbols.stream().map(s -> new Subscription(H0ifcnt0Parser.TR_ID, s)).toList();
+    }
+
     /** start() 전에 한 번 정한다. */
     public void setStateListener(StateListener l) {
         this.stateListener = l;
+    }
+
+    /** start() 전에 한 번 정한다. 정하지 않으면 호가는 세기만 하고 버린다. */
+    public void setQuoteListener(QuoteListener l) {
+        this.quoteListener = l;
+    }
+
+    /** 지금 구독 목록. */
+    public List<Subscription> subscriptions() {
+        return subscriptions;
+    }
+
+    /**
+     * 구독 목록을 바꾼다. 연결 중이면 차이만 보낸다(빠진 것 해제, 새것 등록). 끊겨 있으면 다음 연결에서 새 목록을 쓴다.
+     * 같은 목록이면 아무것도 하지 않는다.
+     */
+    public void setSubscriptions(List<Subscription> next) {
+        List<Subscription> copy = List.copyOf(new LinkedHashSet<>(next));
+        run(() -> changeSubscriptions(copy));
     }
 
     /** 세션 캘린더 없이 바로 붙는다. setActive(true) 와 같다. */
@@ -187,6 +235,7 @@ public final class RealtimeClient implements AutoCloseable {
         }
         WebSocket ws = current;
         current = null;
+        openSocket = null;
         lostAt = null;
         transition(State.IDLE, why);
         if (ws != null) {
@@ -211,12 +260,43 @@ public final class RealtimeClient implements AutoCloseable {
         current = http.newWebSocket(new Request.Builder().url(url).build(), new Listener(gen, key));
     }
 
-    private void opened(long gen) {
+    private void opened(long gen, WebSocket ws, String approvalKey) {
         if (gen != generation) {
+            ws.close(1000, "stale connection");
             return;
         }
         connects.incrementAndGet();
-        LOG.info("connected, sent {} subscriptions", symbols.size());
+        openSocket = ws;
+        openApprovalKey = approvalKey;
+        List<Subscription> subs = subscriptions;
+        for (Subscription s : subs) {
+            ws.send(subscribeMessage(approvalKey, s, true));
+        }
+        LOG.info("connected, sent {} subscriptions {}", subs.size(), subs);
+    }
+
+    private void changeSubscriptions(List<Subscription> next) {
+        List<Subscription> before = subscriptions;
+        if (before.equals(next)) {
+            return;
+        }
+        subscriptions = next;
+        subscriptionChanges.incrementAndGet();
+        Set<Subscription> removed = new LinkedHashSet<>(before);
+        next.forEach(removed::remove);
+        List<Subscription> added = new ArrayList<>(next);
+        added.removeAll(before);
+        LOG.info("subscriptions changed: -{} +{}", removed, added);
+        WebSocket ws = openSocket;
+        if (ws == null) {
+            return; // 다음 연결에서 새 목록을 보낸다
+        }
+        for (Subscription s : removed) {
+            ws.send(subscribeMessage(openApprovalKey, s, false));
+        }
+        for (Subscription s : added) {
+            ws.send(subscribeMessage(openApprovalKey, s, true));
+        }
     }
 
     private void subscribed(long gen, String why) {
@@ -244,6 +324,7 @@ public final class RealtimeClient implements AutoCloseable {
             lostAt = clock.instant();
         }
         current = null;
+        openSocket = null;
         Duration wait = backoff.next();
         transition(State.BACKOFF, why + "; retry in " + wait.toMillis() + " ms");
         try {
@@ -253,16 +334,16 @@ public final class RealtimeClient implements AutoCloseable {
         }
     }
 
-    private String subscribeMessage(String approvalKey, String symbol) {
+    private String subscribeMessage(String approvalKey, Subscription sub, boolean register) {
         ObjectNode root = json.createObjectNode();
         ObjectNode header = root.putObject("header");
         header.put("approval_key", approvalKey);
         header.put("custtype", "P");
-        header.put("tr_type", "1");
+        header.put("tr_type", register ? "1" : "2");
         header.put("content-type", "utf-8");
         ObjectNode input = root.putObject("body").putObject("input");
-        input.put("tr_id", H0ifcnt0Parser.TR_ID);
-        input.put("tr_key", symbol);
+        input.put("tr_id", sub.trId());
+        input.put("tr_key", sub.trKey());
         return root.toString();
     }
 
@@ -283,16 +364,14 @@ public final class RealtimeClient implements AutoCloseable {
                 ws.close(1000, "stale connection");
                 return;
             }
-            for (String s : symbols) {
-                ws.send(subscribeMessage(approvalKey, s));
-            }
-            run(() -> opened(gen));
+            // 구독은 control 스레드에서 보낸다: 그 사이 목록이 바뀌어도 한 목록만 보낸다
+            run(() -> opened(gen, ws, approvalKey));
         }
 
         @Override
         public void onMessage(WebSocket ws, String text) {
             Instant receivedAt = clock.instant();
-            if (H0ifcnt0Parser.isDataFrame(text)) {
+            if (KisDataFrame.isDataFrame(text)) {
                 onData(text, receivedAt);
             } else {
                 onSystem(ws, text);
@@ -303,20 +382,33 @@ public final class RealtimeClient implements AutoCloseable {
             if (state == State.CONNECTING) {
                 run(() -> subscribed(gen, "first trade received"));
             }
-            List<H0ifcnt0Trade> parsed;
+            String trId = KisDataFrame.trId(text);
             try {
-                parsed = H0ifcnt0Parser.parse(text);
+                if (H0ifasp0Parser.TR_ID.equals(trId)) {
+                    List<H0ifasp0Quote> parsed = H0ifasp0Parser.parse(text);
+                    countReceived(trId, parsed.size());
+                    for (H0ifasp0Quote q : parsed) {
+                        quotes.incrementAndGet();
+                        quoteListener.onQuote(q, receivedAt);
+                    }
+                    return;
+                }
+                List<H0ifcnt0Trade> parsed = H0ifcnt0Parser.parse(text);
+                countReceived(trId, parsed.size());
+                for (H0ifcnt0Trade t : parsed) {
+                    trades.incrementAndGet();
+                    listener.onTrade(t, receivedAt);
+                }
             } catch (IllegalArgumentException e) {
                 long n = parseErrors.incrementAndGet();
                 if (n <= 10 || n % 1000 == 0) {
                     LOG.warn("dropped malformed frame #{}: {}", n, e.getMessage());
                 }
-                return;
             }
-            for (H0ifcnt0Trade t : parsed) {
-                trades.incrementAndGet();
-                listener.onTrade(t, receivedAt);
-            }
+        }
+
+        private void countReceived(String trId, int records) {
+            receivedByTr.computeIfAbsent(trId, k -> new AtomicLong()).addAndGet(records);
         }
 
         private void onSystem(WebSocket ws, String text) {
@@ -402,6 +494,21 @@ public final class RealtimeClient implements AutoCloseable {
 
     public long tradeCount() {
         return trades.get();
+    }
+
+    public long quoteCount() {
+        return quotes.get();
+    }
+
+    /** 이 TR 로 받아 파싱한 건수(체결·호가 한 건씩). 형식이 틀려 버린 프레임은 세지 않는다. */
+    public long receivedCount(String trId) {
+        AtomicLong n = receivedByTr.get(trId);
+        return n != null ? n.get() : 0;
+    }
+
+    /** 구독 목록이 바뀐 횟수(롤오버, 주간·야간 전환). */
+    public long subscriptionChangeCount() {
+        return subscriptionChanges.get();
     }
 
     public long pingPongCount() {

@@ -1,11 +1,15 @@
 # KIS 실전 연결. 앱키·시크릿은 환경변수 KIS_APP_KEY, KIS_APP_SECRET 에서만 읽는다(없으면 시작할 때 실패). 모의투자 값(KIS_PAPER_*)과 섞이지 않는다.
 # 웹소켓·REST 도메인은 공식 샘플 kis_devlp.yaml 의 ops·prod 값이다. 모의투자는 application-kis-paper.yml.
-# 구독 키(tr_key)가 REST 의 A01612 형식과 같은지는 야간장 실체결로 확인한다. 다르면 symbols 만 바꾼다.
+# 구독 키(tr_key)는 주간·야간 모두 A01612 형식이다(종목 마스터로 확인, 야간 H0MFCNT0 실수신은 확인할 일). 근월물은 자동으로 고른다.
 # 받은 실제 시세는 로컬 DB 에만 쌓인다. 캡처 파일이 필요하면 local-data/ 에만 둔다.
 collector:
   source: KIS
   session:
     gating: true
+  # 장 전에 KIS 종목 마스터를 받아 instrument 에 Upsert 하고 근월물 코드를 확인한다(시작할 때 한 번 + 매일 07:30)
+  instruments:
+    master:
+      download: true
   # 야간장은 체결 간격이 길 수 있어 넉넉히 둔다(가정, 실체결을 보고 조정)
   stall-threshold: 60s
   ws-url: ws://ops.koreainvestment.com:21000/tryitout

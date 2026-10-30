@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +36,7 @@ class SimulatorConfigTest {
     void everyOptionHasAValidDefault() {
         // 옵션 목록의 기본값만으로 설정이 만들어져야 한다(문서와 --help 가 이 목록을 쓴다)
         load(Map.of());
-        assertEquals(24, SimulatorConfig.OPTIONS.size());
+        assertEquals(25, SimulatorConfig.OPTIONS.size());
     }
 
     @Test
@@ -126,5 +127,15 @@ class SimulatorConfigTest {
         for (SimulatorConfig.Option o : SimulatorConfig.OPTIONS) {
             assertTrue(usage.contains("--" + o.key()), o.key());
         }
+    }
+
+    @Test
+    void clockStartIsOptionalAndMustBeALocalDateTime() {
+        assertTrue(SimulatorConfig.load(new String[0], Map.of()).clock().start().isEmpty());
+        SimulatorConfig c = SimulatorConfig.load(new String[] {"--clock.start=2026-12-10T08:44:00"}, Map.of());
+        assertEquals(LocalDateTime.of(2026, 12, 10, 8, 44), c.clock().start().orElseThrow());
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> SimulatorConfig.load(new String[] {"--clock.start=12/10 08:44"}, Map.of()));
+        assertTrue(e.getMessage().contains("clock.start"));
     }
 }

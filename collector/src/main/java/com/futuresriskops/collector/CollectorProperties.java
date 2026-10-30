@@ -1,7 +1,11 @@
 package com.futuresriskops.collector;
 
+import com.futuresriskops.collector.instrument.SubscriptionPlanner;
 import com.futuresriskops.collector.store.TickTrade;
+import com.futuresriskops.collector.ws.KisApprovalKeyClient;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -12,7 +16,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param enabled            false 면 웹소켓 수집을 시작하지 않는다(마이그레이션·거래일 재계산만 할 때)
  * @param source             tick_trade.source 에 적을 값
  * @param wsUrl              웹소켓 주소
- * @param symbols            구독할 종목(tr_key)
+ * @param symbols            instruments.mode=FIXED 일 때 구독할 종목(tr_key). AUTO 면 쓰지 않는다
  * @param reconnect          재접속 대기(지수 백오프 + 지터)
  * @param wsPingInterval     이 간격으로 웹소켓 ping 을 보내고, 다음 ping 때까지 pong 이 없으면 죽은 연결로 보고 끊는다(0 이면 끔)
  * @param session            세션 캘린더와 장 시간 접속
@@ -20,11 +24,36 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param backfillTradeDates true 면 시작할 때 쌓인 tick_trade 의 거래일·세션을 캘린더 규칙으로 다시 계산한다
  * @param approval           접속키를 어디서 받는지
  * @param batch              DB 배치 적재
+ * @param instruments        종목 선택(근월물 자동·고정), 호가 구독, 종목 마스터 갱신. 없으면 FIXED·호가 끔·마스터 끔
+ * @param clockStart         시뮬레이터 전용: 수집기 시계를 이 한국 시각부터 시작한다(장 밖에서 세션·롤오버 확인용). KIS 모드에서는 거절한다
  */
 @ConfigurationProperties(prefix = "collector")
 public record CollectorProperties(boolean enabled, TickTrade.Source source, String wsUrl, List<String> symbols,
                                   Reconnect reconnect, Duration wsPingInterval, Session session, Duration stallThreshold,
-                                  boolean backfillTradeDates, Approval approval, Batch batch) {
+                                  boolean backfillTradeDates, Approval approval, Batch batch, Instruments instruments,
+                                  LocalDateTime clockStart) {
+
+    /** 설정이 없을 때: 고정 종목, 호가 끔, 마스터 끔(Day 2 까지의 동작). */
+    public Instruments instrumentsOrDefault() {
+        return instruments != null ? instruments
+                : new Instruments(SubscriptionPlanner.Mode.FIXED, false, new Master(false, null, null));
+    }
+
+    /**
+     * @param mode   AUTO 는 근월물 자동 선택과 롤오버, FIXED 는 symbols 그대로
+     * @param quotes 주간장 호가(H0IFASP0)도 구독해 tick_quote 에 쌓는다
+     * @param master KIS 종목 마스터 갱신
+     */
+    public record Instruments(SubscriptionPlanner.Mode mode, boolean quotes, Master master) {
+    }
+
+    /**
+     * @param download  true 면 시작할 때와 매일 refreshAt 에 마스터를 받아 instrument 에 Upsert 한다
+     * @param url       마스터 zip 주소(공식 샘플 값)
+     * @param refreshAt 매일 받는 한국 시각. KIS 가 새벽에 파일을 갱신한 뒤, 08:44 접속 전이어야 한다(가정: 07:30)
+     */
+    public record Master(boolean download, String url, LocalTime refreshAt) {
+    }
 
     /** 1, 2, 4 ... 초로 늘려 maxBackoff 에서 멈추고, 매번 0~maxJitter 를 더한다. */
     public record Reconnect(Duration initialBackoff, Duration maxBackoff, Duration maxJitter) {
@@ -42,11 +71,16 @@ public record CollectorProperties(boolean enabled, TickTrade.Source source, Stri
      * @param mode         NONE 은 시뮬레이터(검사 없음), KIS 는 /oauth2/Approval
      * @param appKeyEnv    KIS 모드에서 앱키를 읽을 환경변수 이름(값이 아니다). 프로필마다 다르다
      * @param appSecretEnv KIS 모드에서 시크릿을 읽을 환경변수 이름
+     * @param keyTtl       접속키를 받은 뒤 만료까지(가정: 24시간). 만료 시각 지표에만 쓴다. 없으면 24시간
      */
-    public record Approval(Mode mode, String restBaseUrl, String appKeyEnv, String appSecretEnv) {
+    public record Approval(Mode mode, String restBaseUrl, String appKeyEnv, String appSecretEnv, Duration keyTtl) {
         public enum Mode {
             NONE,
             KIS
+        }
+
+        public Duration keyTtlOrDefault() {
+            return keyTtl != null ? keyTtl : KisApprovalKeyClient.DEFAULT_TTL;
         }
     }
 

@@ -295,6 +295,8 @@ class SimulatorServerTest {
         assertEquals("1", rtCd(c.next(3000).text));
         c.send(TestClient.request("1", "H0STCNT0", "005930"));
         assertEquals("1", rtCd(c.next(3000).text));
+        c.send(TestClient.request("1", "H0MFASP0", "A01612")); // 야간 호가는 아직 없다
+        assertEquals("1", rtCd(c.next(3000).text));
         c.send(TestClient.request("9", "H0IFCNT0", "101S12"));
         assertEquals("1", rtCd(c.next(3000).text));
         c.send("{\"header\":{\"tr_type\":\"1\"},\"body\":{\"input\":{\"tr_id\":\"H0IFCNT0\"}}}");
@@ -543,5 +545,62 @@ class SimulatorServerTest {
         assertNotNull(c.next(3000));
         s.close();
         assertTrue(c.closed.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void oneFeedServesDayTradesNightTradesAndQuotesForTheSameSymbol() throws Exception {
+        SimulatorServer s = server();
+        TestClient c = connect(s);
+        c.send(TestClient.request("1", "H0IFCNT0", "A01612"));
+        c.send(TestClient.request("1", "H0MFCNT0", "A01612"));
+        c.send(TestClient.request("1", "H0IFASP0", "A01612"));
+        List<Msg> got = c.collectFor(800);
+        long acks = got.stream().filter(m -> m.text.startsWith("{")).filter(m -> rtCd(m.text).equals("0")).count();
+        assertEquals(3, acks);
+        List<String> day = got.stream().map(m -> m.text).filter(t -> t.startsWith("0|H0IFCNT0|001|")).toList();
+        List<String> night = got.stream().map(m -> m.text).filter(t -> t.startsWith("0|H0MFCNT0|001|")).toList();
+        List<String> quotes = got.stream().map(m -> m.text).filter(t -> t.startsWith("0|H0IFASP0|001|")).toList();
+        assertFalse(day.isEmpty());
+        // 세 구독이 조금씩 다른 때에 붙고 수집 창이 체결 중간에 끝날 수 있어 한두 건 차이는 허용한다
+        assertTrue(Math.abs(day.size() - night.size()) <= 2, "every trade goes out in both trade formats");
+        assertTrue(Math.abs(day.size() - quotes.size()) <= 2, "and as one quote");
+        assertEquals(49, night.get(0).split("\\|", 4)[3].split("\\^", -1).length);
+        assertEquals(38, quotes.get(0).split("\\|", 4)[3].split("\\^", -1).length);
+    }
+
+    @Test
+    void unsubscribingOneTrKeepsTheOthers() throws Exception {
+        SimulatorServer s = server();
+        TestClient c = connect(s);
+        c.send(TestClient.request("1", "H0IFCNT0", "A01612"));
+        c.send(TestClient.request("1", "H0IFASP0", "A01612"));
+        c.collectFor(300);
+        c.send(TestClient.request("2", "H0IFASP0", "A01612"));
+        c.collectFor(200);
+        List<Msg> after = c.collectFor(500);
+        assertTrue(after.stream().anyMatch(m -> m.text.startsWith("0|H0IFCNT0|")));
+        assertTrue(after.stream().noneMatch(m -> m.text.startsWith("0|H0IFASP0|")));
+    }
+
+    @Test
+    void clockStartMovesTheTradeTime() throws Exception {
+        SimulatorConfig cfg = SimulatorConfig.load(new String[] {"--server.port=0", "--price.seed=3",
+                "--rate.ticks-per-second=50", "--pingpong.interval-seconds=0", "--clock.start=2026-12-10T08:44:00"},
+                Map.of());
+        SimulatorServer s = new SimulatorServer(cfg, SimulatorMain.clock(cfg));
+        s.start();
+        servers.add(s);
+        TestClient c = connect(s);
+        c.subscribe("A01612");
+        Msg trade = null;
+        for (int i = 0; i < 100 && trade == null; i++) {
+            Msg m = c.next(3000);
+            if (m != null && isTrade(m.text)) {
+                trade = m;
+            }
+        }
+        assertNotNull(trade);
+        String hour = H0IFCNT0.parseFrame(trade.text).get(Field.BSOP_HOUR);
+        assertTrue(hour.startsWith("0844"), hour);
     }
 }

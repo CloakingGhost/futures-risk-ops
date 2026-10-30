@@ -1,6 +1,7 @@
 package com.futuresriskops.simulator;
 
 import com.futuresriskops.simulator.config.SimulatorConfig;
+import com.futuresriskops.simulator.kis.H0IFASP0;
 import com.futuresriskops.simulator.kis.H0IFCNT0;
 import com.futuresriskops.simulator.kis.KisFrames;
 import com.futuresriskops.simulator.market.PriceModel;
@@ -16,6 +17,7 @@ import java.time.ZoneId;
 import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executors;
@@ -25,10 +27,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * H0IFCNT0 형식의 가짜 체결을 웹소켓으로 내보내는 서버.
+ * KIS 형식의 가짜 선물 시세를 웹소켓으로 내보내는 서버. 주간 체결 H0IFCNT0, 야간 체결 H0MFCNT0, 주간 호가 H0IFASP0 를 받는다.
  *
  * <p>클라이언트는 KIS 와 같은 JSON 구독 요청을 보낸다(approval_key 는 검사하지 않는다).
- * 종목 코드는 아무 문자열이나 받고, 처음 구독될 때 그 종목의 가짜 시세 피드를 만든다.
+ * 종목 코드는 아무 문자열이나 받고, 처음 구독될 때 그 종목의 가짜 시세 피드를 만든다. 피드는 종목마다 하나이고,
+ * 같은 체결을 구독한 TR 형식(주간·야간 체결, 호가)으로 바꿔 보낸다. 장 시간은 보지 않는다(어느 TR 이든 언제나 보낸다).
  * 피드는 한 번 만들어지면 구독자가 없어도 계속 체결을 만든다(실제 시장처럼). 그래서 끊긴 동안의 체결은
  * 재접속한 클라이언트가 누적거래량의 빈틈으로 알아챌 수 있다.
  * 주문·계좌·실제 인증 기능은 없다.
@@ -51,6 +54,9 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
     private final AtomicLong sessionSeq = new AtomicLong();
     private final AtomicLong pingPongEchoes = new AtomicLong();
     private final TradeSource.Factory sources;
+
+    /** 이 시뮬레이터가 받는 TR. */
+    public static final Set<String> TR_IDS = Set.of(H0IFCNT0.TR_ID, H0IFCNT0.NIGHT_TR_ID, H0IFASP0.TR_ID);
 
     public SimulatorServer(SimulatorConfig cfg) {
         this(cfg, Clock.system(KST));
@@ -112,7 +118,7 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
             return;
         }
         for (SymbolFeed f : feeds.values()) {
-            f.subscribers.remove(s);
+            f.subscribers.removeIf(sub -> sub.session() == s);
         }
         s.shutdown();
         LOG.log(System.Logger.Level.INFO, "client disconnected {0} (sent={1}, stalled-drops={2}, pongs={3})",
@@ -145,8 +151,8 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
             conn.sendText(KisFrames.error(trId, trKey, "header.tr_type, body.input.tr_id and body.input.tr_key are required"));
             return;
         }
-        if (!trId.equals(H0IFCNT0.TR_ID)) {
-            conn.sendText(KisFrames.error(trId, trKey, "this simulator only serves " + H0IFCNT0.TR_ID));
+        if (!TR_IDS.contains(trId)) {
+            conn.sendText(KisFrames.error(trId, trKey, "this simulator only serves " + TR_IDS));
             return;
         }
         switch (trType) {
@@ -156,25 +162,30 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         }
     }
 
+    private static String key(String trId, String symbol) {
+        return trId + ":" + symbol;
+    }
+
     private void subscribe(ClientSession s, WebSocketConnection conn, String trId, String symbol) {
-        if (!s.subscriptions().contains(symbol) && s.subscriptions().size() >= cfg.server().maxSubscriptions()) {
+        String key = key(trId, symbol);
+        if (!s.subscriptions().contains(key) && s.subscriptions().size() >= cfg.server().maxSubscriptions()) {
             conn.sendText(KisFrames.error(trId, symbol,
                     "max subscriptions per connection is " + cfg.server().maxSubscriptions()));
             return;
         }
         // 응답을 먼저 보낸 뒤 피드에 붙인다: 응답보다 체결이 먼저 가지 않게
         conn.sendText(KisFrames.ok(trId, symbol, KisFrames.MSG_SUBSCRIBE_OK));
-        if (s.subscriptions().add(symbol)) {
-            feeds.computeIfAbsent(symbol, this::startFeed).attach(s);
-            LOG.log(System.Logger.Level.INFO, "subscribed {0} to {1}", conn.remote(), symbol);
+        if (s.subscriptions().add(key)) {
+            feeds.computeIfAbsent(symbol, this::startFeed).attach(new Subscriber(s, trId));
+            LOG.log(System.Logger.Level.INFO, "subscribed {0} to {1}", conn.remote(), key);
         }
     }
 
     private void unsubscribe(ClientSession s, WebSocketConnection conn, String trId, String symbol) {
-        if (s.subscriptions().remove(symbol)) {
+        if (s.subscriptions().remove(key(trId, symbol))) {
             SymbolFeed f = feeds.get(symbol);
             if (f != null) {
-                f.subscribers.remove(s);
+                f.subscribers.remove(new Subscriber(s, trId));
             }
         }
         conn.sendText(KisFrames.ok(trId, symbol, KisFrames.MSG_UNSUBSCRIBE_OK));
@@ -188,13 +199,26 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         return feed;
     }
 
+    /** 연결 하나가 한 종목을 어떤 TR 로 받는지. */
+    private record Subscriber(ClientSession session, String trId) {
+    }
+
+    /** 체결 레코드를 구독한 TR 의 프레임으로 바꾼다. */
+    private String render(String trId, H0IFCNT0.Record r) {
+        return switch (trId) {
+            case H0IFCNT0.NIGHT_TR_ID -> r.toNightFrame();
+            case H0IFASP0.TR_ID -> H0IFASP0.fromTrade(r, cfg.price().tickSize());
+            default -> r.toFrame();
+        };
+    }
+
     /** 종목 하나의 체결을 설정된 속도로 만들어 구독자에게 넘긴다. */
     private final class SymbolFeed {
         final String symbol;
         final TradeSource model;
-        final CopyOnWriteArraySet<ClientSession> subscribers = new CopyOnWriteArraySet<>();
-        /** resend.on-subscribe 용 최근 체결 프레임(오래된 것부터). */
-        private final ArrayDeque<String> recent = new ArrayDeque<>();
+        final CopyOnWriteArraySet<Subscriber> subscribers = new CopyOnWriteArraySet<>();
+        /** resend.on-subscribe 용 최근 체결(오래된 것부터). */
+        private final ArrayDeque<H0IFCNT0.Record> recent = new ArrayDeque<>();
         private final Random rng;
         private volatile boolean stopped;
 
@@ -220,7 +244,7 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
 
         private void tick(long dueNanos) {
             try {
-                publish(model.next(LocalTime.now(clock)).toFrame());
+                publish(model.next(LocalTime.now(clock)));
             } catch (RuntimeException e) {
                 LOG.log(System.Logger.Level.ERROR, "tick failed for " + symbol, e);
             } finally {
@@ -232,23 +256,23 @@ public final class SimulatorServer implements WebSocketServer.Listener, AutoClos
         }
 
         /** 체결 하나를 구독자에게 넘긴다. attach 와 같은 잠금을 써서 새 구독자가 체결을 건너뛰지 않게 한다. */
-        private synchronized void publish(String frame) {
+        private synchronized void publish(H0IFCNT0.Record trade) {
             int keep = cfg.resend().onSubscribe();
             if (keep > 0) {
-                recent.addLast(frame);
+                recent.addLast(trade);
                 while (recent.size() > keep) {
                     recent.removeFirst();
                 }
             }
-            for (ClientSession s : subscribers) {
-                s.deliver(frame);
+            for (Subscriber s : subscribers) {
+                s.session().deliver(render(s.trId(), trade));
             }
         }
 
         /** 구독자를 붙인다. resend.on-subscribe 가 켜져 있으면 최근 체결을 먼저 다시 보낸다. */
-        synchronized void attach(ClientSession s) {
-            for (String frame : recent) {
-                s.deliver(frame);
+        synchronized void attach(Subscriber s) {
+            for (H0IFCNT0.Record r : recent) {
+                s.session().deliver(render(s.trId(), r));
             }
             subscribers.add(s);
         }

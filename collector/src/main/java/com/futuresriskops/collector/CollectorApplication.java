@@ -1,7 +1,9 @@
 package com.futuresriskops.collector;
 
+import com.futuresriskops.collector.instrument.InstrumentRepository;
 import com.futuresriskops.collector.session.SessionCalendar;
 import com.futuresriskops.collector.session.SessionCalendarYaml;
+import com.futuresriskops.collector.store.TickQuoteRepository;
 import com.futuresriskops.collector.store.TickTradeRepository;
 import com.futuresriskops.collector.store.TradeDateBackfill;
 import java.io.IOException;
@@ -9,6 +11,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +27,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 시세 수집기. 시작할 때 Flyway 로 DB 를 맞추고(마이그레이션 파일은 db 모듈),
- * 웹소켓으로 H0IFCNT0 체결을 받아 tick_trade 에 배치로 쌓는다. 장 시간은 세션 캘린더 YAML 이 정한다.
+ * 웹소켓으로 체결(주간 H0IFCNT0, 야간 H0MFCNT0)과 호가(H0IFASP0)를 받아 tick_trade·tick_quote 에 배치로 쌓는다.
+ * 장 시간은 세션 캘린더 YAML 이, 구독할 근월물은 결제월 규칙과 KIS 종목 마스터가 정한다.
+ * 지표는 127.0.0.1:8081 의 /actuator/prometheus 로만 내보낸다(docs/metrics.md).
  */
 @SpringBootApplication
 @EnableConfigurationProperties(CollectorProperties.class)
@@ -63,6 +68,32 @@ public class CollectorApplication {
     }
 
     @Bean
+    TickQuoteRepository tickQuoteRepository(JdbcTemplate jdbc, TickTradeRepository trades) {
+        return new TickQuoteRepository(jdbc, trades);
+    }
+
+    @Bean
+    InstrumentRepository instrumentRepository(JdbcTemplate jdbc, SessionCalendar calendar) {
+        return new InstrumentRepository(jdbc, calendar);
+    }
+
+    /**
+     * 수집기 시계. collector.clock-start 가 있으면 그 한국 시각부터 흐르는 시계다(시뮬레이터로 장 밖에서 세션·롤오버를 볼 때).
+     * KIS 에 붙을 때는 실제 시각과 다르면 거래일·세션이 틀리므로 거절한다.
+     */
+    static Clock collectorClock(CollectorProperties props, SessionCalendar calendar, Clock system) {
+        if (props.clockStart() == null) {
+            return system;
+        }
+        if (props.approval().mode() == CollectorProperties.Approval.Mode.KIS) {
+            throw new IllegalStateException("collector.clock-start is for the simulator only; remove it for KIS profiles");
+        }
+        Instant start = props.clockStart().atZone(calendar.zone()).toInstant();
+        LOG.warn("collector clock starts at {} (simulator only, offset from the real time)", props.clockStart());
+        return Clock.offset(system, Duration.between(system.instant(), start));
+    }
+
+    @Bean
     @ConditionalOnProperty(prefix = "collector", name = "backfill-trade-dates", havingValue = "true")
     ApplicationRunner tradeDateBackfill(JdbcTemplate jdbc, SessionCalendar calendar) {
         return args -> new TradeDateBackfill(jdbc).run(calendar);
@@ -71,7 +102,15 @@ public class CollectorApplication {
     @Bean
     @ConditionalOnProperty(prefix = "collector", name = "enabled", havingValue = "true")
     IngestService ingestService(CollectorProperties props, SessionCalendar calendar, TickTradeRepository repository,
-                                OkHttpClient http) {
-        return new IngestService(props, calendar, repository::insertBatch, http, System.getenv(), Clock.systemUTC());
+                                TickQuoteRepository quotes, InstrumentRepository instruments, OkHttpClient http) {
+        return new IngestService(props, calendar, repository::insertBatch, quotes::insertBatch, instruments, null,
+                http, System.getenv(), collectorClock(props, calendar, Clock.systemUTC()));
+    }
+
+    /** 지표 9종(docs/metrics.md). 스프링이 Prometheus 레지스트리에 붙이고 /actuator/prometheus 로 내보낸다. */
+    @Bean
+    @ConditionalOnProperty(prefix = "collector", name = "enabled", havingValue = "true")
+    CollectorMetrics collectorMetrics(IngestService ingest) {
+        return new CollectorMetrics(ingest);
     }
 }

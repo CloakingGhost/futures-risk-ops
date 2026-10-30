@@ -31,9 +31,9 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 
 | 모듈 | 상태 | 역할 |
 |---|---|---|
-| `simulator` | 있음 | KIS H0IFCNT0 형식의 가짜 체결을 웹소켓으로 송출. 속도·지연·끊김·중단을 설정으로 바꾼다 |
+| `simulator` | 있음 | KIS 형식의 가짜 체결(주간 H0IFCNT0, 야간 H0MFCNT0)과 호가(H0IFASP0)를 웹소켓으로 송출. 속도·지연·끊김·중단·시작 시각을 설정으로 바꾼다 |
 | `db` | 있음 | Flyway 마이그레이션 파일만 담는다. 실행은 collector 한 곳에서만 한다. risk 는 Flyway 를 켜지 않는다 |
-| `collector` | 있음 | 시작할 때 Flyway 적용, KIS 웹소켓(H0IFCNT0) 수신·PINGPONG, 재접속 상태 머신(지수 백오프 + 지터, 재구독), 파싱, 세션 캘린더로 거래일·세션 계산, 누락·수신 공백 감지, 장 시간에만 접속(KIS 프로필), tick_trade 배치 적재(중복은 ON CONFLICT DO NOTHING) |
+| `collector` | 있음 | 시작할 때 Flyway 적용, KIS 종목 마스터를 받아 instrument Upsert(시작 + 매일 07:30), 근월물 자동 선택과 만기 롤오버(만기 전날부터 두 월물 겹침 구독), 세션별 TR 전환(주간 H0IFCNT0·H0IFASP0, 야간 H0MFCNT0), 웹소켓 수신·PINGPONG, 재접속 상태 머신(지수 백오프 + 지터, 재구독), 파싱, 세션 캘린더로 거래일·세션 계산, 누락·수신 공백 감지, 장 시간에만 접속(KIS 프로필), tick_trade·tick_quote 배치 적재(체결 중복은 ON CONFLICT DO NOTHING), 지표 9종(`/actuator/prometheus`, 127.0.0.1:8081) |
 | `risk` | 뼈대 | 베이시스·미결제약정·증거금·마진콜 계산, REST API. 지금은 빈 스프링 앱 |
 
 ```
@@ -45,6 +45,8 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 ```
 
 - 장 시간(세션 시각, 휴장일, 특수 개장, 야간장 거래일 규칙)은 `config/session-calendar.yaml` 하나에만 적는다. Java 코드에 장 시간을 직접 쓰지 않는다. collector 는 빌드할 때 이 파일을 jar 에 넣고, `collector.session.calendar=file:경로` 로 바꿔 읽을 수 있다.
+- collector 지표 이름은 `docs/metrics.md` 에 고정했다. 이름·라벨을 바꾸면 그 문서와 `CollectorMetricsTest` 를 같은 커밋에서 고친다.
+- 선물만 다룬다. 옵션은 v0.1 범위에서 뺐다(README 로드맵). 결제월·만기 규칙은 `FuturesExpiry`, 코드 규칙은 `FuturesCode` 한 곳에만 둔다.
 - 번호가 붙은 마이그레이션 파일(`db/src/main/resources/db/migration/V*.sql`)은 고치지 않는다. 바꿀 때는 다음 번호 파일을 더한다.
 - `collector` 테스트 중 PostgreSQL 이 필요한 것은 Testcontainers 로 임시 DB 를 띄운다. Docker 가 없으면 그 테스트만 건너뛴다(skipped).
 

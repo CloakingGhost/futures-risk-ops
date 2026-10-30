@@ -1,14 +1,31 @@
 package com.futuresriskops.collector;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.futuresriskops.collector.instrument.SubscriptionPlanner;
+import com.futuresriskops.collector.session.TestCalendars;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.core.io.ClassPathResource;
 
-/** 프로필 파일이 가리키는 도메인이 실전·모의투자에서 섞이지 않는지만 본다. 접속하지 않는다. */
+/** 프로필 파일이 가리키는 도메인이 실전·모의투자에서 섞이지 않는지, 설정이 CollectorProperties 로 묶이는지 본다. 접속하지 않는다. */
 class KisProfileConfigTest {
 
     private static Properties load(String file) {
@@ -42,5 +59,66 @@ class KisProfileConfigTest {
         assertEquals(null, p.getProperty("collector.approval.app-key-env"));
         assertEquals("KIS_APP_KEY", load("application.yml").getProperty("collector.approval.app-key-env"));
         assertEquals("KIS_APP_SECRET", load("application.yml").getProperty("collector.approval.app-secret-env"));
+    }
+
+    private static CollectorProperties bind(Properties... layers) {
+        Map<Object, Object> merged = new HashMap<>();
+        for (Properties l : layers) {
+            merged.putAll(l);
+        }
+        return new Binder(List.of(new MapConfigurationPropertySource(merged)), null,
+                ApplicationConversionService.getSharedInstance())
+                .bind("collector", CollectorProperties.class).get();
+    }
+
+    @Test
+    void defaultsPickTheNearMonthWithQuotesAndOnlyKisProfilesDownloadTheMaster() {
+        CollectorProperties sim = bind(load("application.yml"));
+        assertEquals(SubscriptionPlanner.Mode.AUTO, sim.instruments().mode());
+        assertTrue(sim.instruments().quotes());
+        assertFalse(sim.instruments().master().download());
+        assertEquals(LocalTime.of(7, 30), sim.instruments().master().refreshAt());
+        assertNull(sim.clockStart());
+        assertTrue(bind(load("application.yml"), load("application-kis.yml")).instruments().master().download());
+        CollectorProperties paper = bind(load("application.yml"), load("application-kis-paper.yml"));
+        assertTrue(paper.instruments().master().download());
+        assertEquals(sim.instruments().master().url(), paper.instruments().master().url());
+    }
+
+    @Test
+    void clockStartBindsAndIsRefusedForKis() {
+        Properties extra = new Properties();
+        extra.setProperty("collector.clock-start", "2026-12-10T15:43:00");
+        CollectorProperties sim = bind(load("application.yml"), extra);
+        assertEquals(LocalDateTime.of(2026, 12, 10, 15, 43), sim.clockStart());
+        Clock c = CollectorApplication.collectorClock(sim, TestCalendars.standard(), Clock.systemUTC());
+        assertEquals(2026, c.instant().atZone(ZoneId.of("Asia/Seoul")).getYear());
+        assertEquals(12, c.instant().atZone(ZoneId.of("Asia/Seoul")).getMonthValue());
+        CollectorProperties kis = bind(load("application.yml"), load("application-kis.yml"), extra);
+        assertThrows(IllegalStateException.class,
+                () -> CollectorApplication.collectorClock(kis, TestCalendars.standard(), Clock.systemUTC()));
+    }
+
+    @Test
+    void metricsAreServedOnlyOnLoopbackWithHealthAndPrometheus() {
+        Properties base = load("application.yml");
+        assertEquals("127.0.0.1", base.getProperty("server.address"));
+        assertEquals("8081", base.getProperty("server.port"));
+        assertEquals("health,prometheus", base.getProperty("management.endpoints.web.exposure.include"));
+        for (String profile : List.of("application-kis.yml", "application-kis-paper.yml")) {
+            Properties p = load(profile);
+            assertNull(p.getProperty("server.address"), profile + " must not open the port to other machines");
+            assertNull(p.getProperty("management.endpoints.web.exposure.include"), profile);
+        }
+    }
+
+    @Test
+    void approvalKeyTtlDefaultsToTheAssumed24Hours() {
+        assertEquals(Duration.ofHours(24), bind(load("application.yml")).approval().keyTtl());
+        assertEquals(Duration.ofHours(24), bind(load("application.yml"), load("application-kis-paper.yml"))
+                .approval().keyTtlOrDefault());
+        Properties noTtl = load("application.yml");
+        noTtl.remove("collector.approval.key-ttl");
+        assertEquals(Duration.ofHours(24), bind(noTtl).approval().keyTtlOrDefault());
     }
 }

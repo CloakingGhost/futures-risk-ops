@@ -5,11 +5,14 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Properties;
 
@@ -31,7 +34,8 @@ public record SimulatorConfig(
         Disconnect disconnect,
         Stall stall,
         PingPong pingpong,
-        Resend resend) {
+        Resend resend,
+        ClockStart clock) {
 
     /** @param port 0 이면 임의의 빈 포트 */
     public record Server(String host, int port, int maxSubscriptions) {
@@ -110,6 +114,13 @@ public record SimulatorConfig(
     public record Resend(int onSubscribe) {
     }
 
+    /**
+     * 시뮬레이터 시계의 시작 시각(한국 시간). 비어 있으면 실제 시각이다. 장 시간이 아닐 때도 체결 시각(bsop_hour)과
+     * PINGPONG 시각을 장 시간처럼 만들어 세션 캘린더·근월물 전환을 확인한다. 수집기도 같은 시각(collector.clock-start)으로 맞춘다.
+     */
+    public record ClockStart(Optional<LocalDateTime> start) {
+    }
+
     // ------------------------------------------------------------------ 옵션 정의
 
     /** 옵션 하나의 키·기본값·설명. {@code --help} 와 문서가 이 목록을 그대로 쓴다. */
@@ -140,7 +151,8 @@ public record SimulatorConfig(
             new Option("stall.duration-seconds", "0", "how long sending stays stopped; 0 = stall off"),
             new Option("stall.repeat", "false", "repeat run-then-stall cycles"),
             new Option("pingpong.interval-seconds", "30", "interval of PINGPONG messages; 0 = never"),
-            new Option("resend.on-subscribe", "0", "on subscribe, send again the last N trades of that symbol; 0 = off"));
+            new Option("resend.on-subscribe", "0", "on subscribe, send again the last N trades of that symbol; 0 = off"),
+            new Option("clock.start", "", "KST wall clock to start from, e.g. 2026-12-10T08:44:00; empty = real time"));
 
     // ------------------------------------------------------------------ 로딩
 
@@ -200,7 +212,8 @@ public record SimulatorConfig(
                 bool(v, "stall.repeat"));
         PingPong ping = new PingPong(dbl(v, "pingpong.interval-seconds", 0, 86_400));
         Resend resend = new Resend((int) lng(v, "resend.on-subscribe", 0, 10_000));
-        return new SimulatorConfig(server, price, rate, delay, disconnect, stall, ping, resend);
+        ClockStart clock = new ClockStart(dateTime(v, "clock.start"));
+        return new SimulatorConfig(server, price, rate, delay, disconnect, stall, ping, resend, clock);
     }
 
     /** 사람이 읽는 유효 설정 요약(시작할 때 출력). */
@@ -219,13 +232,15 @@ public record SimulatorConfig(
                 + "s repeat=" + stall.repeat());
         lines.add("pingpong      every " + pingpong.intervalSeconds() + "s");
         lines.add("resend        last " + resend.onSubscribe() + " trades on subscribe");
+        lines.add("clock         " + clock.start().map(t -> "starts at " + t + " KST").orElse("real time"));
         return String.join(System.lineSeparator(), lines);
     }
 
     /** {@code --help} 출력. */
     public static String usage() {
         StringBuilder sb = new StringBuilder();
-        sb.append("KIS H0IFCNT0 fake-trade WebSocket simulator").append(System.lineSeparator());
+        sb.append("KIS fake futures WebSocket simulator (H0IFCNT0 / H0MFCNT0 trades, H0IFASP0 quotes)")
+                .append(System.lineSeparator());
         sb.append("usage: --key=value ... [--config=simulator.properties]").append(System.lineSeparator());
         sb.append("env:   SIM_<KEY> with '.' and '-' replaced by '_' (e.g. SIM_RATE_TICKS_PER_SECOND=50)")
                 .append(System.lineSeparator()).append(System.lineSeparator());
@@ -320,6 +335,18 @@ public record SimulatorConfig(
             throw new IllegalArgumentException(key + " must be between " + min + " and " + max + " but was " + s);
         }
         return n;
+    }
+
+    private static Optional<LocalDateTime> dateTime(Map<String, String> v, String key) {
+        String s = v.get(key);
+        if (s == null || s.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(LocalDateTime.parse(s.trim()));
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException(key + " must look like 2026-12-10T08:44:00 but was '" + s + "'");
+        }
     }
 
     private static boolean bool(Map<String, String> v, String key) {
