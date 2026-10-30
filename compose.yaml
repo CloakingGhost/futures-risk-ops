@@ -1,4 +1,7 @@
-# 로컬 개발용 PostgreSQL 16. 계정은 .env 에서 읽는다(값이 없으면 시작하지 않는다).
+# 로컬 개발용. 계정과 키는 .env 에서 읽는다(값이 없으면 시작하지 않는다). 이미지에는 넣지 않는다.
+#   docker compose up -d                      PostgreSQL 만 (앱은 ./gradlew 로 띄울 때)
+#   docker compose --profile app up -d --build  PostgreSQL + simulator + collector + risk
+# 앱 포트는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 와 같이 쓰면 포트가 겹친다.
 services:
   postgres:
     image: postgres:16
@@ -16,6 +19,74 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # 합성 시세. collector 가 기본 설정(프로필 없음)일 때 여기에 붙는다
+  simulator:
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: simulator/Dockerfile
+    image: futures-risk-ops-simulator:local
+    environment:
+      TZ: Asia/Seoul
+
+  # 시작할 때 Flyway 마이그레이션을 적용하고 수집한다. KIS 모의투자는 .env 에 COLLECTOR_PROFILE=kis-paper
+  collector:
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: collector/Dockerfile
+    image: futures-risk-ops-collector:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      simulator:
+        condition: service_started
+    environment:
+      TZ: Asia/Seoul
+      SPRING_PROFILES_ACTIVE: ${COLLECTOR_PROFILE:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/futures_risk_ops
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      SIMULATOR_HOST: simulator
+      # 프로필이 쓰는 쌍만 읽는다(kis: KIS_APP_*, kis-paper: KIS_PAPER_APP_*). 시뮬레이터는 읽지 않는다
+      KIS_APP_KEY: ${KIS_APP_KEY:-}
+      KIS_APP_SECRET: ${KIS_APP_SECRET:-}
+      KIS_PAPER_APP_KEY: ${KIS_PAPER_APP_KEY:-}
+      KIS_PAPER_APP_SECRET: ${KIS_PAPER_APP_SECRET:-}
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8081/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
+
+  # collector 가 마이그레이션을 끝낸 뒤 뜬다. 읽을 출처는 collector 와 맞춘다(.env 의 RISK_SOURCE)
+  risk:
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: risk/Dockerfile
+    image: futures-risk-ops-risk:local
+    depends_on:
+      collector:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Seoul
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/futures_risk_ops
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      RISK_SOURCE: ${RISK_SOURCE:-SIMULATOR}
+    ports:
+      - "127.0.0.1:8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8082/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
 
 volumes:
   pgdata:

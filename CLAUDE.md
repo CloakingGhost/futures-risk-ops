@@ -54,6 +54,7 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 ./gradlew :simulator:run --args="--help"                       # 설정 옵션 목록
 ./gradlew :collector:bootRun                                   # 시뮬레이터에 붙어 수집 (DB 환경변수 필요)
 ./gradlew :risk:bootRun                                        # 리스크 API (DB 환경변수 필요, 127.0.0.1:8082)
+docker compose --profile app up -d --build                     # DB + simulator + collector + risk 컨테이너 (docs/dev-setup.md)
 ```
 
 - 선물만 다룬다. 옵션은 v0.1 범위에서 뺐다(README 로드맵).

@@ -1,0 +1,24 @@
+# 이미지 빌드에 보내지 않는 것. 키(.env)와 실데이터는 절대 이미지에 넣지 않는다(CLAUDE.md 규칙 2, 3).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+local-data/
+captures/
+market-data/
+*.capture
+*.pcap
+*.har
+*.tick
+
+# 빌드 결과와 도구 폴더. 이미지 안에서 다시 빌드한다
+.git/
+.gradle/
+**/build/
+out/
+.idea/
+.vscode/
+*.iml
+*.log
