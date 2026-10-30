@@ -1,6 +1,7 @@
 package com.futuresriskops.collector.ws;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.futuresriskops.collector.kis.H0ifasp0Quote;
@@ -24,6 +25,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.AfterEach;
@@ -177,33 +179,38 @@ class RealtimeClientTest {
      * 와이파이가 끊긴 것처럼: 핸드셰이크와 구독 응답까지 한 뒤 TCP 는 열어 둔 채 아무것도 보내지도 답하지도 않는 서버.
      * ping 을 켜 두면 pong 이 오지 않아 클라이언트가 죽은 연결로 보고 끊어야 한다.
      */
+    /** 연결 하나를 받아 웹소켓 핸드셰이크를 하고 텍스트 프레임 하나(125 바이트 이하)를 보낸다. 그 뒤로는 읽지도 쓰지도 않는다. */
+    private void acceptAndSend(ServerSocket server, String text) throws Exception {
+        Socket s = server.accept();
+        open.add(s);
+        BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
+        String key = null;
+        for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) {
+            if (line.toLowerCase().startsWith("sec-websocket-key:")) {
+                key = line.substring(line.indexOf(':') + 1).trim();
+            }
+        }
+        String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest(
+                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.ISO_8859_1)));
+        OutputStream out = s.getOutputStream();
+        String crlf = "\r\n";
+        out.write(("HTTP/1.1 101 Switching Protocols" + crlf + "Upgrade: websocket" + crlf
+                + "Connection: Upgrade" + crlf + "Sec-WebSocket-Accept: " + accept + crlf + crlf)
+                .getBytes(StandardCharsets.ISO_8859_1));
+        byte[] frame = text.getBytes(StandardCharsets.UTF_8);
+        out.write(0x81); // FIN + 텍스트 프레임
+        out.write(frame.length); // 125 바이트 이하
+        out.write(frame);
+        out.flush();
+    }
+
     @Test
     void pingWithoutPongMarksASilentlyDeadConnectionAsLost() throws Exception {
         try (ServerSocket server = new ServerSocket(0)) {
             Thread t = new Thread(() -> {
                 try {
-                    Socket s = server.accept();
-                    open.add(s);
-                    BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
-                    String key = null;
-                    for (String line = in.readLine(); line != null && !line.isEmpty(); line = in.readLine()) {
-                        if (line.toLowerCase().startsWith("sec-websocket-key:")) {
-                            key = line.substring(line.indexOf(':') + 1).trim();
-                        }
-                    }
-                    String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1").digest(
-                            (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.ISO_8859_1)));
-                    OutputStream out = s.getOutputStream();
-                    String crlf = "\r\n";
-                    out.write(("HTTP/1.1 101 Switching Protocols" + crlf + "Upgrade: websocket" + crlf
-                            + "Connection: Upgrade" + crlf + "Sec-WebSocket-Accept: " + accept + crlf + crlf)
-                            .getBytes(StandardCharsets.ISO_8859_1));
-                    byte[] ack = ("{\"header\":{\"tr_id\":\"H0IFCNT0\",\"tr_key\":\"A01612\"},"
-                            + "\"body\":{\"rt_cd\":\"0\",\"msg1\":\"SUBSCRIBE SUCCESS\"}}").getBytes(StandardCharsets.UTF_8);
-                    out.write(0x81); // FIN + 텍스트 프레임
-                    out.write(ack.length); // 125 바이트 이하
-                    out.write(ack);
-                    out.flush();
+                    acceptAndSend(server, "{\"header\":{\"tr_id\":\"H0IFCNT0\",\"tr_key\":\"A01612\"},"
+                            + "\"body\":{\"rt_cd\":\"0\",\"msg1\":\"SUBSCRIBE SUCCESS\"}}");
                     // 이후로는 읽지도 쓰지도 않는다(ping 에 pong 이 없다)
                 } catch (Exception ignored) {
                     // 테스트 종료로 닫힘
@@ -224,6 +231,57 @@ class RealtimeClientTest {
             await(() -> states.contains(RealtimeClient.State.SUBSCRIBED), "subscribed");
             await(() -> c.state() == RealtimeClient.State.BACKOFF, "the dead connection is noticed");
             assertEquals(1, c.disconnectCount());
+        }
+    }
+
+    @Test
+    void onlyApprovalMessagesCountAsARejectedKey() {
+        assertTrue(RealtimeClient.approvalRejected("invalid approval : NOT FOUND"));
+        assertTrue(RealtimeClient.approvalRejected("Invalid Approval Key"));
+        assertFalse(RealtimeClient.approvalRejected("MAX SUBSCRIBE OVER"));
+        assertFalse(RealtimeClient.approvalRejected(""));
+        assertFalse(RealtimeClient.approvalRejected(null));
+    }
+
+    @Test
+    void aRejectedApprovalKeyIsDroppedAndTheClientReconnectsWithANewOne() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            Thread t = new Thread(() -> {
+                try {
+                    while (!server.isClosed()) {
+                        acceptAndSend(server, "{\"header\":{\"tr_id\":\"H0IFCNT0\",\"tr_key\":\"A01612\"},"
+                                + "\"body\":{\"rt_cd\":\"1\",\"msg1\":\"invalid approval : NOT FOUND\"}}");
+                    }
+                } catch (Exception ignored) {
+                    // 테스트 종료로 닫힘
+                }
+            }, "rejecting-server");
+            t.setDaemon(true);
+            t.start();
+
+            AtomicInteger issued = new AtomicInteger();
+            AtomicInteger invalidated = new AtomicInteger();
+            ApprovalKeyProvider keys = new ApprovalKeyProvider() {
+                @Override
+                public String approvalKey() {
+                    return "test-key-" + issued.incrementAndGet();
+                }
+
+                @Override
+                public void invalidate() {
+                    invalidated.incrementAndGet();
+                }
+            };
+            RealtimeClient c = new RealtimeClient(new OkHttpClient(), "ws://127.0.0.1:" + server.getLocalPort() + "/tryitout",
+                    RealtimeClient.dayTrades(List.of("A01612")), keys, (tr, at) -> received.add(tr),
+                    new Backoff(Duration.ofMillis(100), Duration.ofMillis(200), Duration.ZERO, new Random(1)),
+                    Clock.systemUTC());
+            open.add(c);
+            c.start();
+            await(() -> c.connectCount() >= 2, "a second connection");
+            assertTrue(invalidated.get() >= 1, "the rejected key was dropped");
+            assertTrue(issued.get() >= 2, "the reconnect asked for a key again");
+            assertTrue(c.subscribeErrorCount() >= 1);
         }
     }
 

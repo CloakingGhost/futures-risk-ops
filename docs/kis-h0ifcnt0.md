@@ -90,3 +90,5 @@
 - 야간장 체결의 거래일. 지금은 '다음 거래일'로 가정했다(`config/session-calendar.yaml` 의 `night_trade_date`). KRX 야간 파생상품시장 업무규정으로 확인한 뒤 이 값만 바꾸고, 쌓인 행은 `--collector.backfill-trade-dates=true` 로 다시 계산한다
 - 재접속해 다시 구독했을 때 KIS 가 직전 체결을 다시 보내는지(시뮬레이터 `resend.on-subscribe` 는 이 경우를 흉내 낸다)
 - 한 연결의 실시간 구독 한도(샘플 40건, 블로그 41건)
+- 접속키(approval_key) 유효기간. 지금은 24시간으로 가정하고 만료 1시간 전부터 접속할 때 새로 받는다(`KisApprovalKeyClient`)
+- 잘못되거나 만료된 접속키로 구독하면 KIS 가 어떤 응답을 주는지. 지금은 msg1 에 `approval` 이 들어 있으면 접속키 거절로 보고 키를 버린 뒤 다시 붙는다(`RealtimeClient.approvalRejected`)

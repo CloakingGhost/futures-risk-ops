@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -334,6 +335,14 @@ public final class RealtimeClient implements AutoCloseable {
         }
     }
 
+    /**
+     * 구독 거절 메시지가 접속키 문제인지 본다. KIS 는 잘못된 접속키에 {@code invalid approval ...} 형태의 msg1 을
+     * 보낸다고 가정한다(공식 문서로 확인하지 못함, docs/kis-h0ifcnt0.md '확인할 것').
+     */
+    static boolean approvalRejected(String msg1) {
+        return msg1 != null && msg1.toLowerCase(Locale.ROOT).contains("approval");
+    }
+
     private String subscribeMessage(String approvalKey, Subscription sub, boolean register) {
         ObjectNode root = json.createObjectNode();
         ObjectNode header = root.putObject("header");
@@ -436,6 +445,12 @@ public final class RealtimeClient implements AutoCloseable {
                 subscribeErrors.incrementAndGet();
                 LOG.warn("{} {} rejected (rt_cd={}, msg_cd={}): {}", trId, trKey, rtCd,
                         node.path("body").path("msg_cd").asText(""), msg);
+                if (approvalRejected(msg)) {
+                    // 접속키가 거절되면 이 연결의 구독은 모두 실패한다. 키를 버리고 끊어서 새 키로 다시 붙는다.
+                    LOG.warn("approval key rejected, reconnecting with a new key");
+                    keys.invalidate();
+                    ws.cancel();
+                }
             }
         }
 
