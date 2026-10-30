@@ -1,6 +1,8 @@
 package com.futuresriskops.collector.kis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -52,7 +54,24 @@ class H0ifcnt0ParserTest {
             assertEquals(Integer.parseInt(r.get(Field.LAST_CNQN)), t.qty());
             assertEquals(Long.parseLong(r.get(Field.ACML_VOL)), t.accVolume());
             assertEquals(Long.parseLong(r.get(Field.HTS_OTST_STPL_QTY)), t.openInterest());
+            assertEquals(new BigDecimal(r.get(Field.HTS_THPR)), t.theoreticalPrice());
+            assertEquals(new BigDecimal(r.get(Field.MRKT_BASIS)), t.marketBasis());
+            assertEquals(new BigDecimal(r.get(Field.DPRT)), t.disparityRate());
         }
+    }
+
+    @Test
+    void aBlankOrBrokenBasisFieldIsNullAndTheTradeIsKept() throws IOException {
+        String frame = samples().get(0);
+        String blankBasis = withField(frame, H0ifcnt0Parser.IDX_MARKET_BASIS, "");
+        String brokenRate = withField(frame, H0ifcnt0Parser.IDX_DISPARITY_RATE, "N/A");
+
+        H0ifcnt0Trade a = H0ifcnt0Parser.parse(blankBasis).get(0);
+        assertNull(a.marketBasis());
+        assertEquals(H0ifcnt0Parser.parse(frame).get(0).price(), a.price());
+        H0ifcnt0Trade b = H0ifcnt0Parser.parse(brokenRate).get(0);
+        assertNull(b.disparityRate());
+        assertNotNull(b.marketBasis());
     }
 
     @Test
@@ -64,6 +83,9 @@ class H0ifcnt0ParserTest {
         assertEquals(Field.LAST_CNQN.ordinal(), H0ifcnt0Parser.IDX_QTY);
         assertEquals(Field.ACML_VOL.ordinal(), H0ifcnt0Parser.IDX_ACC_VOLUME);
         assertEquals(Field.HTS_OTST_STPL_QTY.ordinal(), H0ifcnt0Parser.IDX_OPEN_INTEREST);
+        assertEquals(Field.HTS_THPR.ordinal(), H0ifcnt0Parser.IDX_THEORETICAL_PRICE);
+        assertEquals(Field.MRKT_BASIS.ordinal(), H0ifcnt0Parser.IDX_MARKET_BASIS);
+        assertEquals(Field.DPRT.ordinal(), H0ifcnt0Parser.IDX_DISPARITY_RATE);
     }
 
     @Test
