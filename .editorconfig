@@ -1,0 +1,10 @@
+# 편집기(IntelliJ·VS Code 등)가 새 파일을 만들 때도 LF 로 저장하게 한다. 규칙은 .gitattributes 와 같다.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{bat,cmd}]
+end_of_line = crlf
