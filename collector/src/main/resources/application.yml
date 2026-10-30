@@ -2,6 +2,7 @@ spring:
   application:
     name: collector
   datasource:
+    # compose 에서는 SPRING_DATASOURCE_URL 로 DB 컨테이너 주소를 넣는다
     url: jdbc:postgresql://localhost:5432/futures_risk_ops
     # DB 계정도 코드에 두지 않는다. 환경변수가 없으면 시작할 때 실패한다.
     username: ${POSTGRES_USER}
@@ -13,6 +14,7 @@ spring:
 
 # 지표(/actuator/prometheus)와 상태(/actuator/health)만 연다. 이 PC 안에서만 보이도록 127.0.0.1 에 묶는다.
 # 지표 이름과 뜻은 docs/metrics.md. risk 와 겹치지 않게 8081 을 쓴다.
+# 컨테이너 이미지는 SERVER_ADDRESS=0.0.0.0 으로 바꾼다(collector/Dockerfile). 호스트 쪽 공개는 compose 가 127.0.0.1 로 묶는다.
 server:
   address: 127.0.0.1
   port: 8081
@@ -26,7 +28,8 @@ management:
 collector:
   enabled: true
   source: SIMULATOR
-  ws-url: ws://127.0.0.1:18080/tryitout
+  # 시뮬레이터 주소. compose 에서는 SIMULATOR_HOST=simulator 로 바꾼다. KIS 프로필은 이 줄 전체를 KIS 주소로 덮는다
+  ws-url: ws://${SIMULATOR_HOST:127.0.0.1}:18080/tryitout
   # 구독할 종목. AUTO 는 결제월 규칙(3·6·9·12월 둘째 목요일, 휴장이면 앞당김)과 종목 마스터로 근월물을 고르고,
   # 만기 전날 세션부터 만기일 주간장까지 다음 결제월물을 함께 구독한다. FIXED 는 아래 symbols 를 그대로 쓴다.
   # 주간장은 체결 H0IFCNT0 + 호가 H0IFASP0, 야간장은 체결 H0MFCNT0 을 구독한다.

@@ -1,5 +1,6 @@
 spring:
   datasource:
+    # compose 에서는 SPRING_DATASOURCE_URL 로 DB 컨테이너 주소를 넣는다
     url: jdbc:postgresql://localhost:5432/futures_risk_ops
     # DB 계정은 코드에 두지 않는다. 환경변수가 없으면 시작할 때 실패한다.
     username: ${POSTGRES_USER}
@@ -8,7 +9,7 @@ spring:
     # 마이그레이션은 collector 만 실행한다(risk/CLAUDE.md).
     enabled: false
 
-# 이 PC 안에서만 보이게 127.0.0.1 에 묶는다. 컨테이너 안에서는 SERVER_ADDRESS=0.0.0.0 으로 바꾼다(compose·Helm).
+# 이 PC 안에서만 보이게 127.0.0.1 에 묶는다. 컨테이너 이미지는 SERVER_ADDRESS=0.0.0.0 으로 바꾼다(risk/Dockerfile).
 # collector(8081)와 겹치지 않게 8082 를 쓴다.
 server:
   address: 127.0.0.1
