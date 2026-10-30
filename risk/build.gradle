@@ -16,8 +16,18 @@ tasks.withType(JavaCompile).configureEach {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
+    // collector 가 쌓은 tick_trade·instrument 를 읽기만 한다. 마이그레이션은 collector 가 한다(risk 는 Flyway 를 켜지 않는다).
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // 테스트에서만 db 모듈 마이그레이션으로 임시 PostgreSQL 에 스키마를 만든다. Docker 가 없으면 그 테스트만 건너뛴다.
+    testImplementation project(':db')
+    testImplementation 'org.flywaydb:flyway-core'
+    testImplementation 'org.flywaydb:flyway-database-postgresql'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testRuntimeOnly 'org.postgresql:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -28,7 +38,7 @@ tasks.named('test') {
     inputs.file(cases)
     systemProperty 'marginCasesFile', cases.absolutePath
     testLogging {
-        events 'failed'
+        events 'failed', 'skipped'
         exceptionFormat 'full'
     }
 }

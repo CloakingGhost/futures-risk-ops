@@ -1,4 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/futures_risk_ops
+    # DB 계정은 코드에 두지 않는다. 환경변수가 없으면 시작할 때 실패한다.
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+  flyway:
+    # 마이그레이션은 collector 만 실행한다(risk/CLAUDE.md).
+    enabled: false
+
 risk:
+  # 읽을 데이터 출처(tick_trade.source). collector 와 같은 값을 쓴다: SIMULATOR, KIS_PAPER, KIS, REPLAY
+  source: SIMULATOR
   margin:
     # 코스피200 선물 증거금률(%). 출처: 한국투자증권, 2026년 10월 기준(사용자 확인 2026-10-30).
     # 거래소가 거의 매달 바꾼다. 매달 첫 거래일에 증권사 안내를 보고 고치고, 확인 날짜도 같이 고친다.
