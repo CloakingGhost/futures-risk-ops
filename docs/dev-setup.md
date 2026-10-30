@@ -58,14 +58,16 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 `docker compose up -d` 는 지금처럼 PostgreSQL 만 띄운다. 앱까지 띄울 때만 `--profile app` 을 붙인다.
 
 ```
-docker compose --profile app up -d --build   # PostgreSQL + simulator + collector + risk. 처음 빌드는 몇 분 걸린다
+docker compose --profile app up -d --build   # PostgreSQL + collector + risk (KIS 모의투자). 처음 빌드는 몇 분 걸린다
 docker compose --profile app ps              # collector, risk 가 (healthy) 인지
 curl http://127.0.0.1:8082/api/risk/basis    # 리스크 API (docs/risk-api.md)
 docker compose --profile app logs -f collector
 docker compose --profile app down            # 끄기. DB 데이터는 남는다(-v 를 붙이면 DB 볼륨까지 지운다)
 ```
 
-- 기본은 시뮬레이터에 붙는다. KIS 모의투자는 `.env` 에 `COLLECTOR_PROFILE=kis-paper`, `RISK_SOURCE=KIS_PAPER` 를 넣고 다시 `up -d` 한다.
+- 기본은 KIS 모의투자다(`.env` 에 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` 필요). collector 는 장 시간에만 KIS 에 붙는다.
+- 실전은 `.env` 에 `COLLECTOR_PROFILE=kis`, `RISK_SOURCE=KIS`.
+- 시뮬레이터는 KIS 에 붙을 수 없을 때나 장애 시나리오를 만들 때만 쓴다: `.env` 에 `COLLECTOR_PROFILE=default`, `RISK_SOURCE=SIMULATOR` 를 넣고 `docker compose --profile app --profile sim up -d --build`.
 - 이미지에는 키가 없다. `.dockerignore` 가 `.env` 를 빌드에서 빼고, 키와 DB 계정은 compose 가 실행할 때 환경변수로만 넘긴다.
 - 앱 포트(collector 8081, risk 8082)는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 가 있으면 먼저 끈다(포트가 겹친다).
 - 이미지 하나만 빌드할 때는 저장소 루트에서 `docker build -f collector/Dockerfile -t futures-risk-ops-collector:local .` 처럼 한다. 테스트는 이미지 안에서 돌리지 않는다.
