@@ -12,8 +12,9 @@ public class TickTradeRepository {
 
     private static final String INSERT_TRADE = """
             INSERT INTO tick_trade (instrument_id, traded_at, received_at, trade_date, session,
-                                    price, qty, acc_volume, open_interest, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                    price, qty, acc_volume, open_interest,
+                                    theoretical_price, market_basis, disparity_rate, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (instrument_id, trade_date, session, source, acc_volume) DO NOTHING
             """;
 
@@ -47,7 +48,10 @@ public class TickTradeRepository {
             ps.setInt(7, t.qty());
             ps.setLong(8, t.accVolume());
             ps.setLong(9, t.openInterest());
-            ps.setString(10, t.source().name());
+            ps.setBigDecimal(10, t.theoreticalPrice());
+            ps.setBigDecimal(11, t.marketBasis());
+            ps.setBigDecimal(12, t.disparityRate());
+            ps.setString(13, t.source().name());
         })[0];
         int inserted = 0;
         for (int c : counts) {

@@ -14,6 +14,10 @@ public interface ApprovalKeyProvider {
         return Optional.empty();
     }
 
+    /** 서버가 접속키를 거절했을 때 부른다. 다음 {@link #approvalKey()} 는 새 키를 받는다. 시뮬레이터는 할 일이 없다. */
+    default void invalidate() {
+    }
+
     /** 시뮬레이터용. 접속키를 검사하지 않으므로 실제 키를 쓰지 않는다. */
     static ApprovalKeyProvider simulator() {
         return () -> "simulator";

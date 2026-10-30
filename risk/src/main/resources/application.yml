@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    # compose 에서는 SPRING_DATASOURCE_URL 로 DB 컨테이너 주소를 넣는다
+    url: jdbc:postgresql://localhost:5432/futures_risk_ops
+    # DB 계정은 코드에 두지 않는다. 환경변수가 없으면 시작할 때 실패한다.
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+  flyway:
+    # 마이그레이션은 collector 만 실행한다(risk/CLAUDE.md).
+    enabled: false
+
+# 이 PC 안에서만 보이게 127.0.0.1 에 묶는다. 컨테이너 이미지는 SERVER_ADDRESS=0.0.0.0 으로 바꾼다(risk/Dockerfile).
+# collector(8081)와 겹치지 않게 8082 를 쓴다.
+server:
+  address: 127.0.0.1
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+risk:
+  # 읽을 데이터 출처(tick_trade.source). collector 와 같은 값을 쓴다: SIMULATOR, KIS_PAPER, KIS, REPLAY
+  source: SIMULATOR
+  margin:
+    # 코스피200 선물 증거금률(%). 출처: 한국투자증권, 2026년 10월 기준(사용자 확인 2026-10-30).
+    # 거래소가 거의 매달 바꾼다. 매달 첫 거래일에 증권사 안내를 보고 고치고, 확인 날짜도 같이 고친다.
+    initial-rate: 21.750
+    maintenance-rate: 14.500
+    # 코스피200 선물 거래승수(원)와 호가 단위
+    multiplier: 250000
+    tick-size: 0.05

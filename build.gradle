@@ -2,6 +2,11 @@ allprojects {
     group = 'com.futuresriskops'
     version = '0.1.0-SNAPSHOT'
 
+    // Spring Boot 3.3.5 가 고르는 Testcontainers 1.19.8 은 Docker API 1.32 로 붙어, Docker Engine 29 이후에서는
+    // 'client version 1.32 is too old' 로 실패한다. 그러면 DB 테스트가 @Testcontainers(disabledWithoutDocker) 때문에
+    // 실패 없이 건너뛰어진다. API 버전을 맞춰 붙는 1.21.4 로 올린다(2026-10-30, Docker 29.9 에서 확인).
+    ext['testcontainers.version'] = '1.21.4'
+
     repositories {
         mavenCentral()
     }

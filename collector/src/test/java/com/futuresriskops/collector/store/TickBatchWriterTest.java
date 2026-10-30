@@ -17,7 +17,7 @@ class TickBatchWriterTest {
     private static TickTrade trade(long accVolume) {
         Instant now = Instant.parse("2026-10-27T00:00:00Z");
         return new TickTrade("A01612", now, now, LocalDate.of(2026, 10, 27), TradingSession.DAY,
-                new BigDecimal("400.00"), 1, accVolume, 50_000, TickTrade.Source.SIMULATOR);
+                new BigDecimal("400.00"), 1, accVolume, 50_000, null, null, null, TickTrade.Source.SIMULATOR);
     }
 
     @Test

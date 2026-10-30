@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -37,7 +38,7 @@ class TickTradeRepositoryTest {
     private static TickTrade trade(long accVolume, TradingSession session, TickTrade.Source source) {
         Instant at = Instant.parse("2026-10-27T00:00:01Z");
         return new TickTrade("A01612", at, at, LocalDate.of(2026, 10, 27), session, new BigDecimal("400.05"), 2,
-                accVolume, 50_001, source);
+                accVolume, 50_001, new BigDecimal("400.30"), new BigDecimal("0.45"), new BigDecimal("-0.0625"), source);
     }
 
     private int rows() {
@@ -49,7 +50,25 @@ class TickTradeRepositoryTest {
         List<String> cols = jdbc.queryForList(
                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'tick_trade'", String.class);
         assertTrue(cols.containsAll(List.of("trade_date", "session")), cols.toString());
-        assertEquals(5, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertTrue(cols.containsAll(List.of("market_basis", "theoretical_price", "disparity_rate")), cols.toString());
+        assertEquals(6, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+    }
+
+    @Test
+    void basisValuesAreStoredAndMayBeMissing() {
+        TickTrade withBasis = trade(10, TradingSession.DAY, TickTrade.Source.SIMULATOR);
+        TickTrade t = trade(11, TradingSession.DAY, TickTrade.Source.SIMULATOR);
+        TickTrade withoutBasis = new TickTrade(t.symbol(), t.tradedAt(), t.receivedAt(), t.tradeDate(), t.session(),
+                t.price(), t.qty(), t.accVolume(), t.openInterest(), null, null, null, t.source());
+        assertEquals(2, repo.insertBatch(List.of(withBasis, withoutBasis)));
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT market_basis, theoretical_price, disparity_rate FROM tick_trade WHERE acc_volume = 10");
+        assertEquals(0, new BigDecimal("0.45").compareTo((BigDecimal) row.get("market_basis")));
+        assertEquals(0, new BigDecimal("400.30").compareTo((BigDecimal) row.get("theoretical_price")));
+        assertEquals(0, new BigDecimal("-0.0625").compareTo((BigDecimal) row.get("disparity_rate")));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM tick_trade WHERE acc_volume = 11 AND market_basis IS NULL", Integer.class));
     }
 
     @Test

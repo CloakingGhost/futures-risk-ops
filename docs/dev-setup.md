@@ -3,7 +3,7 @@
 ## 필요한 것
 
 - JDK 17 이상(Gradle 래퍼가 Gradle 8.14.3 을 내려받는다)
-- Docker Desktop (PostgreSQL 용)
+- Docker Desktop (PostgreSQL, 앱 컨테이너, DB 테스트용). DB 테스트는 Testcontainers 로 임시 PostgreSQL 을 띄우고, Docker 에 못 붙으면 실패하지 않고 건너뛴다. `./gradlew test` 뒤 `build/reports/tests/test/index.html` 에서 skipped 가 0 인지 본다.
 - 작업 폴더 경로에 한글이 없어야 한다. Windows 에서 테스트 실행기가 한글 경로의 클래스를 못 찾는 문제가 있었다.
 
 ## .env
@@ -52,6 +52,25 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 - 수집기는 10초마다 `ingest stats: trades=..., written=..., duplicates=..., dropped=...` 를 로그에 남긴다.
 - 끌 때는 Ctrl+C 다. 정상 종료하면 큐에 남은 체결을 다 쓰고 `ingest stopped: ...` 를 남기지만, Windows 에서 `gradlew bootRun` 을 Ctrl+C 로 끄면 종료 훅이 돌지 않아 그 줄이 안 나오고 마지막 배치(최대 0.2초 분량)가 빠질 수 있다. 그때는 `ingest stats` 줄을 본다.
 - `trade_date` 는 지금 임시 규칙(수신 한국 날짜, 자정 넘김 보정)이다. Day 2 세션 캘린더가 넘겨받는다.
+
+## 앱을 컨테이너로 띄우기 (compose)
+
+`docker compose up -d` 는 지금처럼 PostgreSQL 만 띄운다. 앱까지 띄울 때만 `--profile app` 을 붙인다.
+
+```
+docker compose --profile app up -d --build   # PostgreSQL + collector + risk (KIS 모의투자). 처음 빌드는 몇 분 걸린다
+docker compose --profile app ps              # collector, risk 가 (healthy) 인지
+curl http://127.0.0.1:8082/api/risk/basis    # 리스크 API (docs/risk-api.md)
+docker compose --profile app logs -f collector
+docker compose --profile app down            # 끄기. DB 데이터는 남는다(-v 를 붙이면 DB 볼륨까지 지운다)
+```
+
+- 기본은 KIS 모의투자다(`.env` 에 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` 필요). collector 는 장 시간에만 KIS 에 붙는다.
+- 실전은 `.env` 에 `COLLECTOR_PROFILE=kis`, `RISK_SOURCE=KIS`.
+- 시뮬레이터는 KIS 에 붙을 수 없을 때나 장애 시나리오를 만들 때만 쓴다: `.env` 에 `COLLECTOR_PROFILE=default`, `RISK_SOURCE=SIMULATOR` 를 넣고 `docker compose --profile app --profile sim up -d --build`.
+- 이미지에는 키가 없다. `.dockerignore` 가 `.env` 를 빌드에서 빼고, 키와 DB 계정은 compose 가 실행할 때 환경변수로만 넘긴다.
+- 앱 포트(collector 8081, risk 8082)는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 가 있으면 먼저 끈다(포트가 겹친다).
+- 이미지 하나만 빌드할 때는 저장소 루트에서 `docker build -f collector/Dockerfile -t futures-risk-ops-collector:local .` 처럼 한다. 테스트는 이미지 안에서 돌리지 않는다.
 
 ## KIS 실시간 체결 받기
 

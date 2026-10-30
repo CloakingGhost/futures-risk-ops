@@ -1,6 +1,7 @@
 package com.futuresriskops.db;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,6 +71,15 @@ class MigrationFilesTest {
         assertTrue(sql.contains("create table tick_quote ("));
         assertTrue(sql.contains("references instrument (id)"));
         assertTrue(sql.contains("check (source in ('kis', 'kis_paper', 'simulator', 'replay'))"));
+    }
+
+    @Test
+    void v6AddsNullableBasisColumnsToTickTrade() throws IOException {
+        String sql = read("V6__tick_trade_basis.sql").toLowerCase();
+        for (String col : List.of("market_basis", "theoretical_price", "disparity_rate")) {
+            assertTrue(sql.contains("alter table tick_trade add column " + col + " numeric"), "missing column " + col);
+        }
+        assertFalse(sql.contains("not null"), "basis columns must stay nullable for rows before V6");
     }
 
     private static int count(String text, String needle) {

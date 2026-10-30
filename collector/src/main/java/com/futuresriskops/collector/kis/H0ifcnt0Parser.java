@@ -35,6 +35,9 @@ public final class H0ifcnt0Parser {
     static final int IDX_PRICE = 5;         // futs_prpr
     static final int IDX_QTY = 9;           // last_cnqn
     static final int IDX_ACC_VOLUME = 10;   // acml_vol
+    static final int IDX_THEORETICAL_PRICE = 12; // hts_thpr
+    static final int IDX_MARKET_BASIS = 13;  // mrkt_basis
+    static final int IDX_DISPARITY_RATE = 14; // dprt
     static final int IDX_OPEN_INTEREST = 18; // hts_otst_stpl_qty
 
     private static final DateTimeFormatter HHMMSS = DateTimeFormatter.ofPattern("HHmmss");
@@ -104,7 +107,24 @@ public final class H0ifcnt0Parser {
                 decimal(f[base + IDX_PRICE], "futs_prpr", r),
                 (int) integer(f[base + IDX_QTY], "last_cnqn", r),
                 integer(f[base + IDX_ACC_VOLUME], "acml_vol", r),
-                integer(f[base + IDX_OPEN_INTEREST], "hts_otst_stpl_qty", r));
+                integer(f[base + IDX_OPEN_INTEREST], "hts_otst_stpl_qty", r),
+                optionalDecimal(f[base + IDX_THEORETICAL_PRICE]),
+                optionalDecimal(f[base + IDX_MARKET_BASIS]),
+                optionalDecimal(f[base + IDX_DISPARITY_RATE]));
+    }
+
+    /**
+     * 베이시스·이론가·괴리율처럼 체결을 버릴 정도는 아닌 값. 비었거나 숫자가 아니면 null 로 두고 체결은 그대로 받는다.
+     */
+    private static BigDecimal optionalDecimal(String v) {
+        if (v == null || v.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(v.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static LocalTime time(String v, int r) {
