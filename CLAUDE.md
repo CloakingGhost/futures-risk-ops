@@ -68,3 +68,18 @@ docker compose --profile app up -d --build                     # DB + collector 
 
 - KIS 메시지 형식(필드 이름·순서·구분자)은 공식 샘플 저장소(`koreainvestment/open-trading-api`)를 기준으로 한다. 공식 문서나 실제 수신으로 확인하지 못한 값의 의미는 코드와 문서에 "가정"이라고 적는다.
 - 주석과 문서는 한국어, 실행 중 출력(로그·CLI 메시지)은 영어로 쓴다(Windows 콘솔 인코딩 문제를 피하려고).
+
+## Claude 작업 방식
+
+2026-11-01 추가. claude.ai 프로젝트 메모리에만 있던 규칙을 VSCode 의 Claude Code 세션도 따르도록 옮겼다. 상세 이력은 [docs/project-memory.md](docs/project-memory.md) 와 `docs/history/` 에 있다.
+
+- **브랜치 이름은 git 관례를 따른다.** `type/short-description` 형식(예: `feat/...`, `fix/...`, `chore/...`, `docs/...`). 새 개발일 작업은 `main` 에서 새 브랜치로 시작한다.
+- **푸시, PR 생성, 병합은 사용자 승인 뒤에 한다.** 커밋까지는 해도 되지만 원격에 올리는 일은 사용자가 확인한 뒤에 한다.
+- **비밀값은 출력하지도 커밋하지도 않는다.** 절대 규칙 2 와 같다. 터미널 출력, 로그 붙여넣기, 문서 예시에도 값을 쓰지 않는다.
+- **계획 문서를 고칠 때 원문을 지우지 않는다.** 바뀐 부분에 `[계획 V2]` 처럼 표시하고, 바뀐 이유와 변경 기록을 같은 문서 안에 남긴다. 계획 문서는 저장소 밖 `margin-watch-plan/sections/11_30day-plan/` 에 있다.
+- **소스 코드는 PC 의 `margin-watch/futures-risk-ops` 클론이 기준이다.** VSCode 는 부가 자료(계획 문서, KIS 마스터 파일 등)까지 보려고 상위 `margin-watch/` 를 작업 폴더로 연다. GitHub 에 올리는 것은 `futures-risk-ops/` 뿐이고, git·테스트 명령은 이 폴더 안에서 실행한다.
+- **다음 개발일 계획 미리 보기**는 위 범위 규칙을 따른다(금요일에는 월요일 계획).
+
+프로젝트 진행 상황과 결정의 요약은 아래 파일에 있고, 세션 시작 때 함께 읽힌다.
+
+@docs/project-memory.md
