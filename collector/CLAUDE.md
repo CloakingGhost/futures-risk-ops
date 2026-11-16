@@ -9,6 +9,7 @@
 - **지표 이름은 `docs/metrics.md` 에 고정했다.** 이름·라벨을 바꾸면 그 문서와 `CollectorMetricsTest` 를 같은 커밋에서 고친다.
 - **결제월·만기 규칙은 `FuturesExpiry`, 종목코드 규칙은 `FuturesCode` 한 곳에만 둔다.**
 - **새 데이터가 필요하면 받는 메시지부터 본다.** 체결 메시지(H0IFCNT0·H0MFCNT0)에는 지금 저장하지 않는 필드가 많다. 필드 표는 `docs/kis-h0ifcnt0.md`. 새 TR 을 구독하기 전에 이 표로 풀 수 있는지 먼저 확인한다.
+- **일봉은 계산하지 않고 KIS 에서 받는다.** `FHKIF03020100` 을 `collector.daily-close` 스케줄로 받아 `daily_bar` 에 upsert 한다. tick_trade 로 일봉을 다시 만들지 않는다. 첫 실호출로 확인할 가정과 결과는 `docs/kis-daily-bar.md` 에 날짜와 함께 적는다.
 - **KIS 문서의 '모의 미지원' 표시는 실제와 다를 수 있다.** 새 TR 은 모의투자에서 실제로 받아 본 뒤 그 날짜를 `docs/kis-h0ifcnt0.md` 에 적는다. 확인 전에는 '가정'으로 적는다.
 
 ## 테스트

@@ -113,6 +113,24 @@ class DailyBarRepositoryTest {
                 () -> repo.upsert("A01612", "O", TickTrade.Source.KIS, List.of(bar("2026-11-13", "400.50", "N")), T1));
     }
 
+    /** docs/kis-daily-bar.md 의 sql 블록이 실제 스키마에서 실행되는지. 문서가 스키마와 어긋나면 여기서 잡힌다. */
+    @Test
+    void theQueriesInTheDocRunAgainstTheSchema() throws Exception {
+        repo.upsert("A01612", "F", TickTrade.Source.SIMULATOR, List.of(bar("2026-11-13", "400.50", "N")), T1);
+        String doc = java.nio.file.Files.readString(java.nio.file.Path.of("..", "docs", "kis-daily-bar.md"));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("```sql\n(.*?)```", java.util.regex.Pattern.DOTALL).matcher(doc);
+        int queries = 0;
+        while (m.find()) {
+            for (String sql : m.group(1).split(";")) {
+                if (!sql.replaceAll("(?m)^\\s*--.*$", "").isBlank()) {
+                    jdbc.queryForList(sql);
+                    queries++;
+                }
+            }
+        }
+        assertEquals(4, queries);
+    }
+
     @Test
     void runningTheJobTwiceOnTheSameDayLeavesTheSameRows() {
         DailyBarSource source = (market, symbol, from, to) -> List.of(bar("2026-11-13", "400.50", "N"), bar("2026-11-16", "401.25", "N"));

@@ -19,9 +19,9 @@ import org.slf4j.LoggerFactory;
  * KIS {@code POST /oauth2/tokenP} 로 REST 접근토큰(access token)을 받는다. 일봉 같은 REST 시세 조회에 쓴다.
  * 웹소켓 접속키({@code KisApprovalKeyClient})와는 다른 키다.
  *
- * <p>요청 본문은 공식 샘플(kis_auth.py)과 같은 {@code grant_type, appkey, appsecret} 다(가정: 샘플 기준, 이 명세 xlsx 에는 없음).
- * 응답의 {@code access_token}, {@code expires_in}(초, 가정: 샘플 기준)을 쓴다. {@code expires_in} 이 없으면
- * {@link #DEFAULT_TTL}(명세 xlsx: 일반고객 유효기간 1일)로 계산한다.
+ * <p>요청 본문은 공식 샘플(kis_auth.py)과 같은 {@code grant_type, appkey, appsecret} 다. 이 명세 xlsx 에는 없지만
+ * 2026-10-26 실전 도메인 curl 로 확인했다(docs/dev-setup.md: 응답 {@code expires_in} 86400). 응답의 {@code access_token},
+ * {@code expires_in}(초)을 쓰고, {@code expires_in} 이 없으면 {@link #DEFAULT_TTL}(명세 xlsx: 일반고객 유효기간 1일)로 계산한다.
  *
  * <p>앱키·시크릿은 환경변수에서만 읽고(이름은 프로필마다 설정), 토큰은 메모리에만 둔다. 로그·예외 메시지에는
  * 키·시크릿·토큰 값을 쓰지 않는다. 만료 {@link #REFRESH_BEFORE} 전부터는 호출할 때 새 토큰을 받는다.
