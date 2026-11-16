@@ -1,5 +1,6 @@
 package com.futuresriskops.collector;
 
+import com.futuresriskops.collector.daily.DailyCloseProperties;
 import com.futuresriskops.collector.instrument.InstrumentRepository;
 import com.futuresriskops.collector.session.SessionCalendar;
 import com.futuresriskops.collector.session.SessionCalendarYaml;
@@ -32,7 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 지표는 127.0.0.1:8081 의 /actuator/prometheus 로만 내보낸다(docs/metrics.md).
  */
 @SpringBootApplication
-@EnableConfigurationProperties(CollectorProperties.class)
+@EnableConfigurationProperties({CollectorProperties.class, DailyCloseProperties.class})
 public class CollectorApplication {
 
     private static final Logger LOG = LoggerFactory.getLogger(CollectorApplication.class);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.futuresriskops.collector.daily.DailyCloseProperties;
 import com.futuresriskops.collector.instrument.SubscriptionPlanner;
 import com.futuresriskops.collector.session.TestCalendars;
 import java.time.Clock;
@@ -110,6 +111,28 @@ class KisProfileConfigTest {
             assertNull(p.getProperty("server.address"), profile + " must not open the port to other machines");
             assertNull(p.getProperty("management.endpoints.web.exposure.include"), profile);
         }
+    }
+
+    private static DailyCloseProperties bindDaily(Properties... layers) {
+        Map<Object, Object> merged = new HashMap<>();
+        for (Properties l : layers) {
+            merged.putAll(l);
+        }
+        return new Binder(List.of(new MapConfigurationPropertySource(merged)), null,
+                ApplicationConversionService.getSharedInstance())
+                .bind("collector.daily-close", DailyCloseProperties.class).get();
+    }
+
+    @Test
+    void dailyCloseIsOffForTheSimulatorAndOnForBothKisProfiles() {
+        DailyCloseProperties sim = bindDaily(load("application.yml"));
+        assertFalse(sim.enabled(), "the simulator has no REST API");
+        assertEquals(LocalTime.of(16, 0), sim.runAt());
+        assertEquals(Duration.ofMinutes(15), sim.afterClose());
+        assertEquals(5, sim.lookbackDays());
+        assertEquals(List.of("F", "CM"), sim.markets());
+        assertTrue(bindDaily(load("application.yml"), load("application-kis.yml")).enabled());
+        assertTrue(bindDaily(load("application.yml"), load("application-kis-paper.yml")).enabled());
     }
 
     @Test
