@@ -66,7 +66,8 @@ collector:
     # 환경변수 '이름'이다(값이 아니다). 실전은 이 이름을 쓰고, 모의투자 프로필은 KIS_PAPER_* 로 바꾼다.
     app-key-env: KIS_APP_KEY
     app-secret-env: KIS_APP_SECRET
-    # 접속키 유효기간(가정: 24시간, 공식 문서로 확인하지 못함). 지표 collector_token_expiry_timestamp_seconds 계산에만 쓴다
+    # 접속키 유효기간 24시간(KIS 공식 문서, 2026-11-17 확인). 접속키는 연결할 때 한 번만 쓰므로 연결 중 만료는 문제가 아니다.
+    # 지표 collector_token_expiry_timestamp_seconds 계산에만 쓴다
     key-ttl: 24h
   # KIS 일봉(FHKIF03020100)을 받아 daily_bar 에 upsert 한다. 시뮬레이터에는 REST 가 없어서 기본은 끄고, KIS 프로필이 켠다.
   # 실행 시각은 max(run-at, 주간장 마감 + after-close) 이고 거래일에만 돈다. 마감 시각은 세션 캘린더가 정한다.
