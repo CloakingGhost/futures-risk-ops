@@ -127,11 +127,13 @@ class KisProfileConfigTest {
     @Test
     void theEnvironmentVariablesComposePassesBindToTheDailyCloseSettings() {
         var env = new org.springframework.core.env.SystemEnvironmentPropertySource("systemEnvironment", new HashMap<String, Object>(Map.of(
-                "COLLECTOR_DAILYCLOSE_RUNONSTART", "true", "COLLECTOR_DAILYCLOSE_MARKETS", "F,CM")));
+                "COLLECTOR_DAILYCLOSE_RUNONSTART", "true", "COLLECTOR_DAILYCLOSE_MARKETS", "F,CM",
+                "COLLECTOR_DAILYCLOSE_LOOKBACKDAYS", "15")));
         DailyCloseProperties p = new Binder(org.springframework.boot.context.properties.source.ConfigurationPropertySources.from(env))
                 .bind("collector.daily-close", DailyCloseProperties.class).get();
         assertTrue(p.runOnStart());
         assertEquals(List.of("F", "CM"), p.markets());
+        assertEquals(15, p.lookbackDays());
     }
 
     @Test

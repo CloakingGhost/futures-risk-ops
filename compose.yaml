@@ -55,9 +55,10 @@ services:
       KIS_APP_SECRET: ${KIS_APP_SECRET:-}
       KIS_PAPER_APP_KEY: ${KIS_PAPER_APP_KEY:-}
       KIS_PAPER_APP_SECRET: ${KIS_PAPER_APP_SECRET:-}
-      # 일봉 첫 실호출 확인용(docs/kis-daily-bar.md). 비우면 기본값: 시작 직후 실행 안 함, 시장 코드 F 만
+      # 일봉 첫 실호출 확인용(docs/kis-daily-bar.md). 비우면 기본값: 시작 직후 실행 안 함, 시장 코드 F 만, 최근 5영업일
       COLLECTOR_DAILYCLOSE_RUNONSTART: ${DAILY_CLOSE_RUN_ON_START:-false}
       COLLECTOR_DAILYCLOSE_MARKETS: ${DAILY_CLOSE_MARKETS:-F}
+      COLLECTOR_DAILYCLOSE_LOOKBACKDAYS: ${DAILY_CLOSE_LOOKBACK_DAYS:-5}
     ports:
       - "127.0.0.1:8081:8081"
     healthcheck:
