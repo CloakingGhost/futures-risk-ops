@@ -218,7 +218,7 @@ class CollectorMetricsTest {
         };
         DailyCloseJob job = new DailyCloseJob(source, repo, TestCalendars.fixed(), FuturesContracts::empty,
                 TickTrade.Source.KIS, clock, new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15),
-                5, List.of("F")));
+                5, List.of("F"), false));
         new CollectorMetrics(svc, job::lastSuccess).bindTo(registry);
 
         assertEquals(0, gauge(CollectorMetrics.DAILY_CLOSE_LAST_SUCCESS), "never ran");

@@ -77,8 +77,10 @@ collector:
     after-close: 15m
     # 오늘을 포함한 최근 영업일 수(1~100). 며칠 빠져도 다음 실행이 메운다
     lookback-days: 5
-    # F 주간(지수선물), CM 야간선물. 하나라도 실패하면 그 실행은 성공으로 세지 않는다
-    markets: [F, CM]
+    # F 주간(지수선물), CM 야간선물. 기본은 F 만(CM 은 첫 실호출로 되는 것을 확인한 뒤 [F, CM] 으로). 하나라도 실패하면 그 실행은 성공으로 세지 않는다
+    markets: [F]
+    # true 면 시작 직후 한 번 받는다(첫 실호출 확인, 며칠 꺼 뒀을 때 보충). 장중이면 오늘은 빼고 직전 거래일까지만 받는다
+    run-on-start: false
   batch:
     queue-capacity: 100000
     max-size: 500

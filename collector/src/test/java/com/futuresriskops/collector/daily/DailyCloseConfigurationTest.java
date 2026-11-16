@@ -34,7 +34,7 @@ class DailyCloseConfigurationTest {
                 .withUserConfiguration(DailyCloseConfiguration.class)
                 .withBean(CollectorProperties.class, () -> props(mode))
                 .withBean(DailyCloseProperties.class, () -> new DailyCloseProperties(true, LocalTime.of(16, 0),
-                        Duration.ofMinutes(15), 5, List.of("F", "CM")))
+                        Duration.ofMinutes(15), 5, List.of("F", "CM"), false))
                 .withBean(OkHttpClient.class, OkHttpClient::new)
                 .withBean(JdbcTemplate.class, DailyCloseConfigurationTest::unconnectedJdbc)
                 .withBean(TickTradeRepository.class, () -> new TickTradeRepository(unconnectedJdbc()))

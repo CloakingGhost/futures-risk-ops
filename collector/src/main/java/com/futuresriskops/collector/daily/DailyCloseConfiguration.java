@@ -52,7 +52,7 @@ class DailyCloseConfiguration {
     }
 
     @Bean(initMethod = "start", destroyMethod = "stop")
-    DailyCloseScheduler dailyCloseScheduler(DailyCloseJob job) {
-        return new DailyCloseScheduler(job, Clock.systemUTC());
+    DailyCloseScheduler dailyCloseScheduler(DailyCloseJob job, DailyCloseProperties daily) {
+        return new DailyCloseScheduler(job, Clock.systemUTC(), daily.runOnStart());
     }
 }

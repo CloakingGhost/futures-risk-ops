@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,11 +21,14 @@ import org.slf4j.LoggerFactory;
 /**
  * 거래일마다 KIS 일봉을 받아 daily_bar 에 upsert 한다. 일봉은 계산하지 않고 KIS 가 준 값을 그대로 둔다.
  *
- * <p>무엇을 받나: 오늘(한국 시각 기준)이 주간장이 열리는 거래일이면, 그 주간 세션의 구독 종목
- * ({@link NearMonthPlanner}: 근월물, 만기 전날부터는 다음 결제월물도)마다 설정된 시장 코드(F, CM)로 최근
- * {@code lookbackDays} 영업일을 요청한다. 며칠 빠져도 다음 실행이 메우고, 같은 구간을 두 번 받아도 결과가 같다.
+ * <p>무엇을 받나: 마지막 확정 영업일({@code to})까지 최근 {@code lookbackDays} 영업일을, 그날 주간 세션의 구독 종목
+ * ({@link NearMonthPlanner}: 근월물, 만기 전날부터는 다음 결제월물도)마다 설정된 시장 코드(기본 F)로 요청한다.
+ * 며칠 빠져도 다음 실행이 메우고, 같은 구간을 두 번 받아도 결과가 같다.
  *
- * <p>휴장일·주말, 주간장이 닫힌 날은 받지 않는다(세션 캘린더가 정한다). 실행 시각은 {@link #nextRunAfter(Instant)}.
+ * <p>{@code to} 는 오늘 실행 시각({@link #runTimeOn(LocalDate)})이 지났으면 오늘, 아니면(장중이거나 실행 시각 전, 휴장일·주말)
+ * 직전 거래일이다. 진행 중인 오늘 값(응답의 현재가 필드)을 확정 일봉처럼 저장하지 않으려는 것이다(가정: 장중에 부르면 진행 중인 값이 온다).
+ * 정해진 시각의 스케줄은 {@link #runScheduled()} 로 오늘을 포함한다. 휴장일·주말, 주간장이 닫힌 날에는 돌지 않는다(세션 캘린더가 정한다).
+ * 실행 시각은 {@link #nextRunAfter(Instant)}.
  *
  * <p>성공으로 치는 것: 요청이 하나 이상 있었고 모두 성공한 실행. 한 요청이라도 실패하면 {@link #lastSuccess()} 는
  * 갱신하지 않는다(지표가 멈춰 알람이 되도록). 실패해도 나머지 요청은 계속한다.
@@ -79,18 +83,34 @@ public final class DailyCloseJob {
         return lastSuccess;
     }
 
+    /**
+     * 시작 직후나 수동 실행용. 오늘 실행 시각 전(장중 포함)이거나 쉬는 날이면 직전 거래일까지만 받는다.
+     */
     public Result runOnce() {
+        Instant now = clock.instant();
+        LocalDate today = LocalDate.ofInstant(now, calendar.zone());
+        boolean todayFinal = runTimeOn(today).map(t -> !now.isBefore(t)).orElse(false);
+        LocalDate to = todayFinal ? today : FuturesExpiry.previousTradingDay(today, calendar);
+        return run(now, to);
+    }
+
+    /** 스케줄이 실행 시각에 부른다. 오늘 주간장이 열린 날이 아니면 건너뛰고, 열렸으면 오늘까지 받는다. */
+    public Result runScheduled() {
         Instant now = clock.instant();
         LocalDate today = LocalDate.ofInstant(now, calendar.zone());
         if (calendar.hours(today, TradingSession.DAY).isEmpty()) {
             LOG.info("daily close skipped: {} has no day session", today);
             return Result.skipped();
         }
-        LocalDate from = today;
+        return run(now, today);
+    }
+
+    private Result run(Instant now, LocalDate to) {
+        LocalDate from = to;
         for (int i = 1; i < props.lookbackDays(); i++) {
             from = FuturesExpiry.previousTradingDay(from, calendar);
         }
-        List<FuturesContract> plan = new NearMonthPlanner(calendar).plan(today, TradingSession.DAY, contracts.get())
+        List<FuturesContract> plan = new NearMonthPlanner(calendar).plan(to, TradingSession.DAY, contracts.get())
                 .contracts();
         int requests = 0;
         int failures = 0;
@@ -99,12 +119,12 @@ public final class DailyCloseJob {
             for (String market : props.markets()) {
                 requests++;
                 try {
-                    List<DailyBar> bars = source.fetch(market, c.symbol(), from, today);
+                    List<DailyBar> bars = source.fetch(market, c.symbol(), from, to);
                     rows += repository.upsert(c.symbol(), market, dataSource, bars, now);
                 } catch (RuntimeException e) {
                     failures++;
                     // 메시지에는 키·토큰 값이 없다(클라이언트가 HTTP 코드와 필드 이름만 쓴다)
-                    LOG.warn("daily close failed for {} {} {}..{}: {}", market, c.symbol(), from, today, e.getMessage());
+                    LOG.warn("daily close failed for {} {} {}..{}: {}", market, c.symbol(), from, to, e.getMessage());
                 }
             }
         }
@@ -112,7 +132,7 @@ public final class DailyCloseJob {
         if (result.succeeded()) {
             lastSuccess = now;
         }
-        LOG.info("daily close {}..{}: requests={}, failures={}, rows={}", from, today, requests, failures, rows);
+        LOG.info("daily close {}..{}: requests={}, failures={}, rows={}", from, to, requests, failures, rows);
         return result;
     }
 
@@ -123,17 +143,20 @@ public final class DailyCloseJob {
     public Instant nextRunAfter(Instant after) {
         LocalDate d = LocalDate.ofInstant(after, calendar.zone());
         for (int i = 0; i < 14; i++, d = d.plusDays(1)) {
-            var hours = calendar.hours(d, TradingSession.DAY);
-            if (hours.isEmpty()) {
-                continue;
-            }
-            LocalTime afterClose = hours.get().close().plus(props.afterClose());
-            LocalTime at = afterClose.isAfter(props.runAt()) ? afterClose : props.runAt();
-            Instant t = d.atTime(at).atZone(calendar.zone()).toInstant();
-            if (t.isAfter(after)) {
-                return t;
+            Optional<Instant> t = runTimeOn(d);
+            if (t.isPresent() && t.get().isAfter(after)) {
+                return t.get();
             }
         }
         throw new IllegalStateException("no day session within 14 days after " + after);
+    }
+
+    /** 그날 일봉을 받는 시각. 주간장이 열리지 않는 날은 빈 값. */
+    public Optional<Instant> runTimeOn(LocalDate d) {
+        return calendar.hours(d, TradingSession.DAY).map(h -> {
+            LocalTime afterClose = h.close().plus(props.afterClose());
+            LocalTime at = afterClose.isAfter(props.runAt()) ? afterClose : props.runAt();
+            return d.atTime(at).atZone(calendar.zone()).toInstant();
+        });
     }
 }

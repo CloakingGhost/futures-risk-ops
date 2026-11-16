@@ -28,7 +28,7 @@ class DailyCloseJobTest {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final DailyCloseProperties PROPS = new DailyCloseProperties(true, LocalTime.of(16, 0),
-            Duration.ofMinutes(15), 5, List.of("F", "CM"));
+            Duration.ofMinutes(15), 5, List.of("F", "CM"), false);
 
     private final SessionCalendar calendar = TestCalendars.fixed();
 
@@ -102,14 +102,72 @@ class DailyCloseJobTest {
     }
 
     @Test
-    void skipsWeekendsAndHolidaysWithoutAnyRequest() {
+    void theScheduledRunSkipsWeekendsAndHolidaysWithoutAnyRequest() {
         var source = new FakeSource();
         var repo = new RecordingRepository();
 
-        assertFalse(job(source, repo, kst("2026-11-14", "16:00")).runOnce().ran(), "Saturday");
-        assertFalse(job(source, repo, kst("2026-12-25", "16:00")).runOnce().ran(), "test holiday");
+        assertFalse(job(source, repo, kst("2026-11-14", "16:00")).runScheduled().ran(), "Saturday");
+        assertFalse(job(source, repo, kst("2026-12-25", "16:00")).runScheduled().ran(), "test holiday");
         assertTrue(source.calls.isEmpty());
         assertTrue(repo.written.isEmpty());
+    }
+
+    private static LocalDate lastTo(FakeSource source) {
+        return source.calls.get(source.calls.size() - 1).to();
+    }
+
+    @Test
+    void duringTheSessionTodayIsLeftOutBecauseItIsStillInProgress() {
+        var source = new FakeSource();
+
+        // 2026-11-16 월 10:00, 주간장 진행 중. 직전 거래일(11/13 금)까지만, 영업일 5개: 11/9 월 ~ 11/13 금
+        job(source, new RecordingRepository(), kst("2026-11-16", "10:00")).runOnce();
+
+        assertEquals(new Call("F", "A01612", LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 13)), source.calls.get(0));
+    }
+
+    @Test
+    void todayIsIncludedFromTheRunTimeOn() {
+        var source = new FakeSource();
+
+        job(source, new RecordingRepository(), kst("2026-11-16", "15:59")).runOnce();
+        assertEquals(LocalDate.of(2026, 11, 13), lastTo(source), "one minute before the run time");
+
+        job(source, new RecordingRepository(), kst("2026-11-16", "16:00")).runOnce();
+        assertEquals(LocalDate.of(2026, 11, 16), lastTo(source), "at the run time");
+    }
+
+    @Test
+    void onALateCloseDayTodayWaitsForTheLaterRunTime() {
+        var source = new FakeSource();
+
+        // 2026-11-19 는 주간장이 16:45 에 끝난다(테스트 캘린더). 실행 시각은 17:00
+        job(source, new RecordingRepository(), kst("2026-11-19", "16:30")).runOnce();
+        assertEquals(LocalDate.of(2026, 11, 18), lastTo(source));
+
+        job(source, new RecordingRepository(), kst("2026-11-19", "17:00")).runOnce();
+        assertEquals(LocalDate.of(2026, 11, 19), lastTo(source));
+    }
+
+    @Test
+    void startedOnAWeekendOrHolidayItCatchesUpToTheLastTradingDay() {
+        var source = new FakeSource();
+
+        assertTrue(job(source, new RecordingRepository(), kst("2026-11-14", "10:00")).runOnce().ran(), "Saturday");
+        assertEquals(LocalDate.of(2026, 11, 13), lastTo(source));
+
+        job(source, new RecordingRepository(), kst("2026-12-25", "10:00")).runOnce(); // 테스트 휴장일(금)
+        assertEquals(LocalDate.of(2026, 12, 24), lastTo(source));
+    }
+
+    @Test
+    void theContractsAreThoseOfTheLastDayBeingFetchedNotOfToday() {
+        var source = new FakeSource();
+
+        // 12월물 만기는 12/10(둘째 목요일). 토요일 12/12 에 켜면 받는 마지막 날은 12/11 이고 그날 근월물은 다음 결제월물(A01703)이다
+        job(source, new RecordingRepository(), kst("2026-12-12", "10:00")).runOnce();
+
+        assertEquals(List.of("A01703"), source.calls.stream().map(Call::symbol).distinct().toList());
     }
 
     @Test
@@ -173,12 +231,12 @@ class DailyCloseJobTest {
     @Test
     void propertiesRejectBadValuesAtStart() {
         assertThrows(IllegalArgumentException.class,
-                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 0, List.of("F")));
+                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 0, List.of("F"), false));
         assertThrows(IllegalArgumentException.class,
-                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 101, List.of("F")));
+                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 101, List.of("F"), false));
         assertThrows(IllegalArgumentException.class,
-                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of("O")));
+                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of("O"), false));
         assertThrows(IllegalArgumentException.class,
-                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of()));
+                () -> new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of(), false));
     }
 }

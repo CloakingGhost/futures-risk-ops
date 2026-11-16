@@ -13,14 +13,18 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param runAt         이 한국 시각부터 받는다. 주간장 마감이 이보다 늦은 날(수능일 등)은 마감 + afterClose 로 미룬다
  * @param afterClose    주간장 마감 뒤 KIS 가 일봉을 확정하길 기다리는 시간(가정: 15분, 첫 실호출로 확인)
  * @param lookbackDays  오늘을 포함해 최근 몇 영업일을 요청할지. 한 번에 최대 100건이라 1~100
- * @param markets       요청할 KIS 시장 분류 코드. F 주간(지수선물), CM 야간선물. 하나라도 실패하면 그 실행은 성공으로 세지 않는다
+ * @param markets       요청할 KIS 시장 분류 코드. F 주간(지수선물), CM 야간선물. 기본은 F 만이다(CM 은 첫 실호출로 되는 것을 확인한 뒤 켠다).
+ *                      하나라도 실패하면 그 실행은 성공으로 세지 않는다
+ * @param runOnStart    true 면 시작 직후 한 번 받는다(첫 실호출 확인, 며칠 꺼 뒀을 때 보충). 장중이거나 오늘 실행 시각 전이면 오늘은 빼고
+ *                      직전 거래일까지만 받는다(진행 중인 값을 확정 일봉으로 저장하지 않으려고)
  */
 @ConfigurationProperties(prefix = "collector.daily-close")
 public record DailyCloseProperties(@DefaultValue("false") boolean enabled,
                                    @DefaultValue("16:00") LocalTime runAt,
                                    @DefaultValue("15m") Duration afterClose,
                                    @DefaultValue("5") int lookbackDays,
-                                   @DefaultValue({"F", "CM"}) List<String> markets) {
+                                   @DefaultValue({"F"}) List<String> markets,
+                                   @DefaultValue("false") boolean runOnStart) {
 
     public DailyCloseProperties {
         if (lookbackDays < 1 || lookbackDays > 100) {

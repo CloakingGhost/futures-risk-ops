@@ -136,7 +136,7 @@ class DailyBarRepositoryTest {
         DailyBarSource source = (market, symbol, from, to) -> List.of(bar("2026-11-13", "400.50", "N"), bar("2026-11-16", "401.25", "N"));
         var job = new DailyCloseJob(source, repo, TestCalendars.fixed(), FuturesContracts::empty, TickTrade.Source.KIS,
                 Clock.fixed(T1, ZoneOffset.UTC), new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5,
-                List.of("F", "CM")));
+                List.of("F", "CM"), false));
 
         job.runOnce();
         List<Map<String, Object>> first = snapshot();
@@ -149,7 +149,7 @@ class DailyBarRepositoryTest {
     @Test
     void aSecondRunLaterTheSameDayChangesOnlyFetchedAt() {
         DailyBarSource source = (market, symbol, from, to) -> List.of(bar("2026-11-16", "401.25", "N"));
-        var props = new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of("F"));
+        var props = new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of("F"), false);
         new DailyCloseJob(source, repo, TestCalendars.fixed(), FuturesContracts::empty, TickTrade.Source.KIS,
                 Clock.fixed(T1, ZoneOffset.UTC), props).runOnce();
         Map<String, Object> first = jdbc.queryForMap("SELECT * FROM daily_bar");
