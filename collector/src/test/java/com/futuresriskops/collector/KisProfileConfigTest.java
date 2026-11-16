@@ -150,6 +150,14 @@ class KisProfileConfigTest {
         assertTrue(bindDaily(load("application.yml"), load("application-kis-paper.yml")).enabled());
     }
 
+    /** Helm 차트의 probe(/actuator/health/liveness·readiness)가 쓰는 설정. 빠지면 probe 가 404 로 실패해 파드가 계속 재시작된다. */
+    @Test
+    void kubernetesProbesAreEnabledOutsideKubernetesToo() {
+        Properties base = load("application.yml");
+        assertEquals("true", base.getProperty("management.endpoint.health.probes.enabled"));
+        assertEquals("health,prometheus", base.getProperty("management.endpoints.web.exposure.include"));
+    }
+
     @Test
     void approvalKeyTtlDefaultsToTheAssumed24Hours() {
         assertEquals(Duration.ofHours(24), bind(load("application.yml")).approval().keyTtl());
