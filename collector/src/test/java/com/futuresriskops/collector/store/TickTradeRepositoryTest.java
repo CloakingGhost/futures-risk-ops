@@ -51,7 +51,11 @@ class TickTradeRepositoryTest {
                 "SELECT column_name FROM information_schema.columns WHERE table_name = 'tick_trade'", String.class);
         assertTrue(cols.containsAll(List.of("trade_date", "session")), cols.toString());
         assertTrue(cols.containsAll(List.of("market_basis", "theoretical_price", "disparity_rate")), cols.toString());
-        assertEquals(6, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        List<String> bar = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'daily_bar'", String.class);
+        assertTrue(bar.containsAll(List.of("instrument_id", "trade_date", "market", "source", "open_price", "high_price",
+                "low_price", "close_price", "acc_volume", "acc_trade_value", "mod_yn", "fetched_at")), bar.toString());
+        assertEquals(7, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
     }
 
     @Test
