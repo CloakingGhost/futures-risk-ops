@@ -60,14 +60,16 @@ compose 에서는 `.env` 의 `DAILY_CLOSE_RUN_ON_START=true`, `DAILY_CLOSE_MARKE
 1. `.env` 에 `KIS_APP_KEY`, `KIS_APP_SECRET`(실전)이 있는지 본다. `DAILY_CLOSE_RUN_ON_START=true` 를 넣고 `docker compose --profile app up -d --build`(또는 gradlew 로 `kis` 프로필 + `--collector.daily-close.run-on-start=true`). compose collector 하나만 띄운다(KIS 접속은 하나).
 2. collector 로그에서 `daily bars F A01612 ...: n rows` 와 `daily close ...: requests=..., failures=...` 를 본다. 같은 시각에 `collector_daily_close_last_success_timestamp_seconds` 가 0 이 아닌지 본다.
 3. 아래 '조회 쿼리' 의 3번(종가 비교)과 4번(거래량 비교)을 돌린다.
-4. 되는 것이 확인되면 `DAILY_CLOSE_MARKETS=F,CM` 으로 한 번 더 돌려 CM 을 본다.
-5. 결과를 아래 '첫 실호출 기록' 표에 날짜와 함께 적고, '가정과 확인 상태' 표를 고친다. 값(가격)은 옮기지 않는다.
+4. **확정 시점을 보려면 지금 `daily_bar` 를 복사해 둔다**(같은 키를 다시 받으면 덮어써서 이전 값이 남지 않는다):
+   `CREATE TABLE daily_bar_snap_<오늘날짜> AS SELECT * FROM daily_bar;`. 다음 거래일 16:00 실행이 끝난 뒤 스냅샷과 같은 키의 값이 달라졌는지 비교한다(로컬 `docs/db-queries.md` 8절 마지막 조회). 비교가 끝나면 스냅샷 표를 지운다.
+5. 되는 것이 확인되면 `DAILY_CLOSE_MARKETS=F,CM` 으로 한 번 더 돌려 CM 을 본다.
+6. 결과를 아래 '첫 실호출 기록' 표에 날짜와 함께 적고, '가정과 확인 상태' 표를 고친다. 값(가격)은 옮기지 않는다.
 
 | 가정 | 실패하면 |
 |---|---|
 | 종목코드 `A01612` | **멈추고 결과를 보고한다.** 자동으로 다른 코드를 시도하지 않는다. 실패 응답(`rt_cd`, `msg_cd`, 행 수)만 보고 형식을 정한 뒤 코드 변환을 한 곳에 더한다. 그동안 지표는 0 이라 일봉이 안 들어오는 것이 바로 보인다 |
 | 주간 기준 | 같은 날 같은 출처에서 **종가가 일치하고 누적거래량 차이가 1% 이내**(`diff_pct`)이면 '주간 기준'으로 적는다. 며칠 치를 비교해 모두 만족해야 한다. 종가가 다르거나 일봉 거래량이 우리 주간 누적보다 1% 넘게 크면(야간 합산 의심) 멈추고 숫자를 보고한다. 어느 쪽이든 `daily_bar` 에는 KIS 값을 그대로 둔다 |
-| 확정 시점 | **15분 유지.** 다음 거래일 실행이 최근 5영업일을 다시 받아 덮어쓰므로, 확정 전에 받았어도 값이 최대 하루 늦게 맞춰진다. 첫 실호출 때 그날 값과 다음 날 값을 비교해 달라졌는지만 기록한다(`fetched_at` 이 다른 두 시점). 달라졌다면 `after-close` 를 늘린다 |
+| 확정 시점 | **15분 유지.** 다음 거래일 실행이 최근 5영업일을 다시 받아 덮어쓰므로, 확정 전에 받았어도 값이 최대 하루 늦게 맞춰진다. 첫 실호출 직후 만든 스냅샷과 다음 거래일 실행 뒤의 값을 비교해 달라졌는지만 기록한다(위 절차 4번). 달라졌다면 `after-close` 를 늘린다 |
 
 ## 첫 실호출 기록
 
