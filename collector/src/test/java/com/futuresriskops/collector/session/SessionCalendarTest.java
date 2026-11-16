@@ -183,6 +183,26 @@ class SessionCalendarTest {
         assertFalse(real.isTradingDay(d("2026-12-25")));
     }
 
+    /** 수능일(2026-11-19): 주간 09:45~16:45, 야간은 19:00 개장·06:00 마감(2026-11-05 보도, KRX 원문 공지는 미확인). 실제 설정 파일로 본다. */
+    @Test
+    void repositoryCalendarHasTheCsatDayHours() {
+        SessionCalendar real = TestCalendars.standard();
+        // 주간
+        assertFalse(real.isOpen(kst("2026-11-19T08:45:00")), "normal opening time is not open on the exam day");
+        assertTrue(real.isOpen(kst("2026-11-19T09:45:00")));
+        assertFalse(real.isOpen(kst("2026-11-19T16:45:00")));
+        // 야간: 개장만 1시간 늦고 마감은 평소와 같다
+        assertFalse(real.isOpen(kst("2026-11-19T18:30:00")), "the exam-day night session opens at 19:00");
+        assertTrue(real.isOpen(kst("2026-11-19T19:00:00")));
+        assertTrue(real.isOpen(kst("2026-11-20T05:59:59")));
+        assertFalse(real.isOpen(kst("2026-11-20T06:00:00")));
+        // 전날 야간장은 평소대로 18:00 에 열려 11/19 06:00 에 끝난다
+        assertTrue(real.isOpen(kst("2026-11-18T18:00:00")));
+        assertFalse(real.isOpen(kst("2026-11-19T06:00:00")));
+        // 다음 날은 평소대로
+        assertTrue(real.isOpen(kst("2026-11-20T08:45:00")));
+    }
+
     @Test
     void badCalendarsFailAtStartup() {
         assertThrows(IllegalArgumentException.class,

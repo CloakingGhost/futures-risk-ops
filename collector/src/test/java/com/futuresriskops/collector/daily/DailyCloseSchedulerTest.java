@@ -109,6 +109,20 @@ class DailyCloseSchedulerTest {
                 "the next run is the next trading day");
     }
 
+    /**
+     * 타이머가 시계보다 몇 ms 일찍 깨면 now 가 실행 시각 직전이다. 그때 now 기준으로 다음 실행을 구하면 같은 16:00:00 이 또 나와 바로 다시
+     * 돈다. 시계를 16:00:00 1ms 전에 고정해 그 상황을 만든다. 한 번만 돌고 다음 거래일로 넘어가야 한다.
+     */
+    @Test
+    void anEarlyTimerDoesNotRunTheSameTimeAgain() throws Exception {
+        schedulerAt("2026-11-17T15:59:59.999", false).start();
+
+        awaitRequests(1);
+        Thread.sleep(500);
+
+        assertEquals(List.of(LocalDate.of(2026, 11, 17)), requestedTo, "one run, not a loop at the same instant");
+    }
+
     @Test
     void withoutRunOnStartNothingIsRequestedUntilTheScheduledTime() throws Exception {
         schedulerAt("2026-11-16T10:00", false).start();
