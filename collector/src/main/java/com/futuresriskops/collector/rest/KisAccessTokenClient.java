@@ -6,6 +6,10 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -20,8 +24,13 @@ import org.slf4j.LoggerFactory;
  * 웹소켓 접속키({@code KisApprovalKeyClient})와는 다른 키다.
  *
  * <p>요청 본문은 공식 샘플(kis_auth.py)과 같은 {@code grant_type, appkey, appsecret} 다. 이 명세 xlsx 에는 없지만
- * 2026-10-26 실전 도메인 curl 로 확인했다(docs/dev-setup.md: 응답 {@code expires_in} 86400). 응답의 {@code access_token},
- * {@code expires_in}(초)을 쓰고, {@code expires_in} 이 없으면 {@link #DEFAULT_TTL}(명세 xlsx: 일반고객 유효기간 1일)로 계산한다.
+ * 2026-10-26 실전 도메인 curl 로 확인했다(docs/dev-setup.md). 응답의 {@code access_token} 과 만료를 쓴다.
+ *
+ * <p><b>만료는 {@code access_token_token_expired}(한국 시각, 절대 시각)를 우선 쓴다.</b> KIS 공식 문서는 접근토큰이 유효 24시간이고
+ * 6시간 안에 다시 요청하면 새 토큰이 아니라 직전 토큰을 돌려준다고 하며, 만료 관리에 이 필드를 쓰라고 한다. 2026-11-17 실호출에서
+ * 직전 토큰이 돌아올 때도 {@code expires_in} 은 86400 그대로였고 실제 남은 시간은 훨씬 짧았다. 그래서 {@code expires_in} 으로
+ * '지금부터 24시간'이라 계산하면 만료 시각을 최대 6시간 늦게 잡는다. 이 필드가 없거나 읽을 수 없을 때만
+ * {@code expires_in}(초), 그것도 없으면 {@link #DEFAULT_TTL} 로 계산한다.
  *
  * <p>앱키·시크릿은 환경변수에서만 읽고(이름은 프로필마다 설정), 토큰은 메모리에만 둔다. 로그·예외 메시지에는
  * 키·시크릿·토큰 값을 쓰지 않는다. 만료 {@link #REFRESH_BEFORE} 전부터는 호출할 때 새 토큰을 받는다.
@@ -31,7 +40,10 @@ public final class KisAccessTokenClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(KisAccessTokenClient.class);
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
-    /** 명세 xlsx: 일반고객 접근토큰 유효기간 1일. 응답에 expires_in 이 없을 때만 쓴다. */
+    /** KIS 가 주는 만료 시각(access_token_token_expired)은 한국 시각이다(2026-11-17 확인: 발급 시각 + 24시간과 일치). */
+    private static final ZoneId KIS_ZONE = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter KIS_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /** 명세 xlsx: 일반고객 접근토큰 유효기간 1일. 응답에 만료 시각도 expires_in 도 없을 때만 쓴다. */
     public static final Duration DEFAULT_TTL = Duration.ofDays(1);
     /** 만료 이만큼 전부터는 호출할 때 새 토큰을 받는다. */
     public static final Duration REFRESH_BEFORE = Duration.ofHours(1);
@@ -86,6 +98,19 @@ public final class KisAccessTokenClient {
         expiresAt = null;
     }
 
+    /** {@code yyyy-MM-dd HH:mm:ss}(한국 시각)을 시각으로. 없거나 읽을 수 없으면 null(그때는 expires_in 을 쓴다). */
+    private static Instant absoluteExpiry(String text) {
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(text.trim(), KIS_TIME).atZone(KIS_ZONE).toInstant();
+        } catch (DateTimeParseException e) {
+            LOG.warn("access_token_token_expired is not in the expected format, using expires_in");
+            return null;
+        }
+    }
+
     private void request(Instant now) {
         String body;
         try {
@@ -107,11 +132,14 @@ public final class KisAccessTokenClient {
             if (token.isBlank()) {
                 throw new IllegalStateException("access token response has no access_token");
             }
-            long seconds = node.path("expires_in").asLong(0);
-            Duration ttl = seconds > 0 ? Duration.ofSeconds(seconds) : DEFAULT_TTL;
+            Instant expiry = absoluteExpiry(node.path("access_token_token_expired").asText(""));
+            if (expiry == null) {
+                long seconds = node.path("expires_in").asLong(0);
+                expiry = now.plus(seconds > 0 ? Duration.ofSeconds(seconds) : DEFAULT_TTL);
+            }
             cached = token;
-            expiresAt = now.plus(ttl);
-            LOG.info("access token issued, valid for {}", ttl);
+            expiresAt = expiry;
+            LOG.info("access token issued, valid until {}", expiry);
         } catch (IOException e) {
             throw new IllegalStateException("access token request failed: " + e.getClass().getSimpleName());
         }

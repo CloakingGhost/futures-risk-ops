@@ -122,6 +122,43 @@ class KisAccessTokenClientTest {
         assertEquals(2, server.getRequestCount());
     }
 
+    /**
+     * KIS 는 6시간 안에 다시 요청하면 직전 토큰을 돌려주는데, 그때도 expires_in 은 86400 이고 실제 만료는 access_token_token_expired 다
+     * (2026-11-17 실호출). 만료 시각이 지금부터 13.5시간 뒤인 응답을 합성해, 24시간이 아니라 그 시각 기준으로 다시 받는지 본다.
+     */
+    @Test
+    void usesTheAbsoluteExpiryKisReturnsInKoreanTimeInsteadOfExpiresIn() throws Exception {
+        // T0 = 2026-11-16 00:00 UTC = 09:00 KST. 만료 22:30 KST = 13:30 UTC = T0 + 13.5시간
+        server.enqueue(new MockResponse().setBody("{\"access_token\":\"dummy-1\",\"access_token_token_expired\":\"2026-11-16 22:30:00\","
+                + "\"token_type\":\"Bearer\",\"expires_in\":86400}"));
+        server.enqueue(new MockResponse().setBody(tokenBody("dummy-2", 86400)));
+        server.start();
+        MovableClock clock = new MovableClock(T0);
+        var client = clientAt(clock);
+
+        assertEquals("dummy-1", client.accessToken());
+        clock.advance(Duration.ofHours(12).plusMinutes(29)); // 만료 1시간 전보다 1분 이르다
+        assertEquals("dummy-1", client.accessToken(), "more than an hour left by the real expiry");
+        assertEquals(1, server.getRequestCount());
+
+        clock.advance(Duration.ofMinutes(1)); // 실제 만료 1시간 전. expires_in 만 믿으면 아직 11시간 이상 남았다고 착각한다
+        assertEquals("dummy-2", client.accessToken());
+        assertEquals(2, server.getRequestCount());
+    }
+
+    @Test
+    void anUnreadableAbsoluteExpiryFallsBackToExpiresIn() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"access_token\":\"dummy-1\",\"access_token_token_expired\":\"not a time\",\"expires_in\":3600}"));
+        server.enqueue(new MockResponse().setBody(tokenBody("dummy-2", 86400)));
+        server.start();
+        MovableClock clock = new MovableClock(T0);
+        var client = clientAt(clock);
+
+        assertEquals("dummy-1", client.accessToken());
+        clock.advance(Duration.ofSeconds(1)); // expires_in 3600 이면 만료 1시간 전이 이미 지났다
+        assertEquals("dummy-2", client.accessToken());
+    }
+
     @Test
     void withoutExpiresInItAssumesOneDay() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"access_token\":\"dummy-1\"}"));
