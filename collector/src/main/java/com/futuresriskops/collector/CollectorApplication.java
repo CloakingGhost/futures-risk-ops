@@ -1,5 +1,6 @@
 package com.futuresriskops.collector;
 
+import com.futuresriskops.collector.daily.DailyCloseJob;
 import com.futuresriskops.collector.daily.DailyCloseProperties;
 import com.futuresriskops.collector.instrument.InstrumentRepository;
 import com.futuresriskops.collector.session.SessionCalendar;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -108,10 +110,11 @@ public class CollectorApplication {
                 http, System.getenv(), collectorClock(props, calendar, Clock.systemUTC()));
     }
 
-    /** 지표 9종(docs/metrics.md). 스프링이 Prometheus 레지스트리에 붙이고 /actuator/prometheus 로 내보낸다. */
+    /** 지표 10종(docs/metrics.md). 스프링이 Prometheus 레지스트리에 붙이고 /actuator/prometheus 로 내보낸다. */
     @Bean
     @ConditionalOnProperty(prefix = "collector", name = "enabled", havingValue = "true")
-    CollectorMetrics collectorMetrics(IngestService ingest) {
-        return new CollectorMetrics(ingest);
+    CollectorMetrics collectorMetrics(IngestService ingest, ObjectProvider<DailyCloseJob> dailyClose) {
+        DailyCloseJob job = dailyClose.getIfAvailable();
+        return job == null ? new CollectorMetrics(ingest) : new CollectorMetrics(ingest, job::lastSuccess);
     }
 }

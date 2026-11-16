@@ -15,9 +15,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
- * 수집기 지표 9종을 레지스트리에 붙인다. 이름과 뜻은 docs/metrics.md 에 고정하고, 바꿀 때는 그 문서와 알람·대시보드를 같이 고친다.
+ * 수집기 지표 10종을 레지스트리에 붙인다. 이름과 뜻은 docs/metrics.md 에 고정하고, 바꿀 때는 그 문서와 알람·대시보드를 같이 고친다.
  *
  * <p>카운터는 새로 세지 않고 기존 카운터(로그 {@code ingest stats} 의 숫자)를 읽는다. 지연 두 가지만 여기서 잰다.
  * Prometheus 이름은 점이 밑줄로 바뀌고, 카운터에는 {@code _total}, 타이머에는 {@code _seconds} 가 붙는다.
@@ -34,6 +35,7 @@ public final class CollectorMetrics implements MeterBinder {
     static final String MARKET_SESSION_OPEN = "collector.market.session.open";
     static final String TOKEN_EXPIRY = "collector.token.expiry.timestamp.seconds";
     static final String LAST_TRADE_RECEIVED = "collector.last.trade.received.timestamp.seconds";
+    static final String DAILY_CLOSE_LAST_SUCCESS = "collector.daily.close.last.success.timestamp.seconds";
 
     /** (kind, tr_id). 처음부터 0 으로 내보내야 알람식이 '값 없음' 을 따로 다루지 않는다. */
     private static final List<String[]> RECEIVED_SERIES = List.of(
@@ -47,9 +49,17 @@ public final class CollectorMetrics implements MeterBinder {
             5, 10);
 
     private final IngestService ingest;
+    private final Supplier<Instant> dailyCloseLastSuccess;
 
+    /** 일봉 수집을 켜지 않은 설정(시뮬레이터). 일봉 지표는 0 으로 나간다. */
     public CollectorMetrics(IngestService ingest) {
+        this(ingest, () -> null);
+    }
+
+    /** @param dailyCloseLastSuccess 일봉 작업이 마지막으로 성공한 시각. 아직 없거나 일봉 수집이 꺼져 있으면 null */
+    public CollectorMetrics(IngestService ingest, Supplier<Instant> dailyCloseLastSuccess) {
         this.ingest = ingest;
+        this.dailyCloseLastSuccess = dailyCloseLastSuccess;
     }
 
     @Override
@@ -113,6 +123,12 @@ public final class CollectorMetrics implements MeterBinder {
                     return at != null ? epochSeconds(at) : 0.0;
                 })
                 .description("Receive time of the last trade; 0 if none yet")
+                .register(registry);
+        Gauge.builder(DAILY_CLOSE_LAST_SUCCESS, dailyCloseLastSuccess, f -> {
+                    Instant at = f.get();
+                    return at != null ? epochSeconds(at) : 0.0;
+                })
+                .description("Time of the last daily bar run where every request succeeded; 0 if none yet or daily close is off")
                 .register(registry);
     }
 
