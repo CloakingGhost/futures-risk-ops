@@ -1,0 +1,6 @@
+apiVersion: v2
+name: collector
+description: KIS 시세 수집기. KIS 웹소켓 접속은 하나라서 한 번에 하나만 띄운다(replicas 1 고정, strategy Recreate, HPA 없음).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

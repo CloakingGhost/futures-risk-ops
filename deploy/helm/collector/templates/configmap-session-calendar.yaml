@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-session-calendar
+  labels:
+    app.kubernetes.io/name: collector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: margin-watch
+data:
+  # 장 시간은 저장소 루트 config/session-calendar.yaml 한 곳에만 적는다. 차트에 복사본을 두지 않고 설치할 때 그대로 넣는다.
+  session-calendar.yaml: |
+    {{- required "sessionCalendar is required: helm install collector deploy/helm/collector --set-file sessionCalendar=config/session-calendar.yaml" .Values.sessionCalendar | nindent 4 }}
