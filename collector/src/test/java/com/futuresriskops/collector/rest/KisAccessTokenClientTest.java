@@ -38,8 +38,8 @@ class KisAccessTokenClientTest {
     }
 
     private KisAccessTokenClient clientAt(MovableClock clock) {
-        return new KisAccessTokenClient(new OkHttpClient(), server.url("/").toString(), env, "KIS_APP_KEY",
-                "KIS_APP_SECRET", clock);
+        return new KisAccessTokenClient(new OkHttpClient(), server.url("/").toString(),
+                KisCredentials.fromEnv(env, "KIS_APP_KEY", "KIS_APP_SECRET"), clock);
     }
 
     @Test
@@ -63,9 +63,16 @@ class KisAccessTokenClientTest {
 
     @Test
     void failsAtStartWithoutEnvironmentVariables() {
-        IllegalStateException e = assertThrows(IllegalStateException.class, () -> new KisAccessTokenClient(
-                new OkHttpClient(), "http://127.0.0.1:1", Map.of(), "KIS_APP_KEY", "KIS_APP_SECRET", Clock.systemUTC()));
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> KisCredentials.fromEnv(Map.of(), "KIS_APP_KEY", "KIS_APP_SECRET"));
         assertTrue(e.getMessage().contains("KIS_APP_KEY"));
+    }
+
+    @Test
+    void credentialsNeverPrintTheirValues() {
+        String text = KisCredentials.fromEnv(env, "KIS_APP_KEY", "KIS_APP_SECRET").toString();
+        assertFalse(text.contains("dummy-app-key"));
+        assertFalse(text.contains("dummy-secret"));
     }
 
     @Test
@@ -74,8 +81,9 @@ class KisAccessTokenClientTest {
         server.start();
         Map<String, String> both = Map.of("KIS_APP_KEY", "real-key", "KIS_APP_SECRET", "real-secret",
                 "KIS_PAPER_APP_KEY", "paper-key", "KIS_PAPER_APP_SECRET", "paper-secret");
-        var client = new KisAccessTokenClient(new OkHttpClient(), server.url("/").toString(), both,
-                "KIS_PAPER_APP_KEY", "KIS_PAPER_APP_SECRET", Clock.fixed(T0, ZoneOffset.UTC));
+        var client = new KisAccessTokenClient(new OkHttpClient(), server.url("/").toString(),
+                KisCredentials.fromEnv(both, "KIS_PAPER_APP_KEY", "KIS_PAPER_APP_SECRET"),
+                Clock.fixed(T0, ZoneOffset.UTC));
         client.accessToken();
         JsonNode body = new ObjectMapper().readTree(server.takeRequest().getBody().readUtf8());
         assertEquals("paper-key", body.path("appkey").asText());

@@ -38,33 +38,17 @@ public final class KisAccessTokenClient {
 
     private final OkHttpClient http;
     private final String restBaseUrl;
-    private final String appKey;
-    private final String appSecret;
+    private final KisCredentials credentials;
     private final Clock clock;
     private final ObjectMapper json = new ObjectMapper();
     private volatile String cached;
     private volatile Instant expiresAt;
 
-    /**
-     * @param env          보통 {@code System.getenv()}
-     * @param appKeyEnv    앱키를 담은 환경변수 이름. 없거나 비어 있으면 여기서 바로 실패한다
-     * @param appSecretEnv 시크릿을 담은 환경변수 이름
-     */
-    public KisAccessTokenClient(OkHttpClient http, String restBaseUrl, Map<String, String> env, String appKeyEnv,
-                                String appSecretEnv, Clock clock) {
+    public KisAccessTokenClient(OkHttpClient http, String restBaseUrl, KisCredentials credentials, Clock clock) {
         this.http = http;
         this.restBaseUrl = restBaseUrl.endsWith("/") ? restBaseUrl.substring(0, restBaseUrl.length() - 1) : restBaseUrl;
+        this.credentials = credentials;
         this.clock = clock;
-        this.appKey = required(env, appKeyEnv);
-        this.appSecret = required(env, appSecretEnv);
-    }
-
-    private static String required(Map<String, String> env, String name) {
-        String v = env.get(name);
-        if (v == null || v.isBlank()) {
-            throw new IllegalStateException("environment variable " + name + " is required for the KIS REST access token (set in the terminal that runs the collector)");
-        }
-        return v.trim();
     }
 
     public String accessToken() {
@@ -106,7 +90,7 @@ public final class KisAccessTokenClient {
         String body;
         try {
             body = json.writeValueAsString(Map.of(
-                    "grant_type", "client_credentials", "appkey", appKey, "appsecret", appSecret));
+                    "grant_type", "client_credentials", "appkey", credentials.appKey(), "appsecret", credentials.appSecret()));
         } catch (IOException e) {
             throw new IllegalStateException("could not build access token request", e);
         }
