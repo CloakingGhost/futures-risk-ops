@@ -123,6 +123,39 @@ class DailyCloseSchedulerTest {
         assertEquals(List.of(LocalDate.of(2026, 11, 17)), requestedTo, "one run, not a loop at the same instant");
     }
 
+    /**
+     * 14일 넘게 주간장이 없는 캘린더에서는 다음 실행을 못 잡는다. 예전에는 시작할 때 예외로 collector 가 못 뜨고, 실행 뒤에는 타이머가 조용히
+     * 끊겼다. 이제는 로그를 남기고 나중에 다시 시도하며 시작은 막지 않는다.
+     */
+    @Test
+    void failingToPlanTheNextRunDoesNotBreakStartup() throws Exception {
+        StringBuilder holidays = new StringBuilder();
+        for (int day = 17; day <= 30; day++) {
+            holidays.append("  - { date: 2026-11-").append(day).append(", name: synthetic closure }\n");
+        }
+        String yaml = "timezone: Asia/Seoul\n"
+                + "regular:\n"
+                + "  day:   { open: \"08:45\", close: \"15:45\" }\n"
+                + "  night: { open: \"18:00\", close: \"06:00\" }\n"
+                + "night_trade_date: next_trading_day\n"
+                + "holidays:\n" + holidays;
+        Instant now = LocalDate.of(2026, 11, 17).atTime(LocalTime.of(10, 0)).atZone(KST).toInstant();
+        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        DailyBarSource source = (market, symbol, from, to) -> {
+            requestedTo.add(to);
+            return List.<DailyBar>of();
+        };
+        DailyBarRepository repo = new DailyBarRepository(null, s -> 1L);
+        var job = new DailyCloseJob(source, repo, TestCalendars.fromYaml(yaml), FuturesContracts::empty, TickTrade.Source.KIS,
+                clock, new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15), 5, List.of("F"), false));
+        scheduler = new DailyCloseScheduler(job, clock, false);
+
+        scheduler.start(); // 던지지 않는다
+
+        Thread.sleep(200);
+        assertTrue(requestedTo.isEmpty());
+    }
+
     @Test
     void withoutRunOnStartNothingIsRequestedUntilTheScheduledTime() throws Exception {
         schedulerAt("2026-11-16T10:00", false).start();

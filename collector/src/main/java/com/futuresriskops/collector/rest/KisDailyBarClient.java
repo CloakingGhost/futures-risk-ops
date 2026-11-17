@@ -10,6 +10,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -42,6 +43,12 @@ public final class KisDailyBarClient {
     /** 시장 분류 코드. F 는 지수선물(주간), CM 은 야간선물. */
     public static final String MARKET_DAY = "F";
     public static final String MARKET_NIGHT = "CM";
+
+    /**
+     * 접근토큰이 만료·무효라는 KIS 오류 코드(msg_cd). 공식 문서(로컬 전체 문서 332 시트)에는 없고 경험적으로 알려진 값이라 가정이다
+     * (EGW00121 유효하지 않은 token, EGW00123 기간이 만료된 token). 이 코드가 오면 캐시한 토큰을 버려 다음 호출에서 다시 받는다.
+     */
+    private static final Set<String> TOKEN_ERROR_CODES = Set.of("EGW00121", "EGW00123");
 
     private final OkHttpClient http;
     private final HttpUrl endpoint;
@@ -84,7 +91,7 @@ public final class KisDailyBarClient {
                 .build();
         try (Response res = http.newCall(req).execute()) {
             if (!res.isSuccessful()) {
-                if (res.code() == 401 || res.code() == 403) {
+                if (res.code() == 401 || res.code() == 403 || isTokenError(res.body().string())) {
                     tokens.invalidate();
                 }
                 throw new IllegalStateException("daily bar request failed with HTTP " + res.code());
@@ -101,7 +108,11 @@ public final class KisDailyBarClient {
         JsonNode root = json.readTree(body);
         String rtCd = root.path("rt_cd").asText("");
         if (!rtCd.equals("0")) {
-            throw new IllegalStateException("daily bar response rt_cd=" + rtCd + " msg_cd=" + root.path("msg_cd").asText(""));
+            String msgCd = root.path("msg_cd").asText("");
+            if (TOKEN_ERROR_CODES.contains(msgCd)) {
+                tokens.invalidate();
+            }
+            throw new IllegalStateException("daily bar response rt_cd=" + rtCd + " msg_cd=" + msgCd);
         }
         List<DailyBar> out = new ArrayList<>();
         for (JsonNode row : root.path("output2")) {
@@ -116,11 +127,29 @@ public final class KisDailyBarClient {
             if (open.signum() == 0 && high.signum() == 0 && low.signum() == 0 && close.signum() == 0) {
                 continue;
             }
-            out.add(new DailyBar(parseDate(date), open, high, low, close, decimal(row, "acml_vol").longValueExact(),
+            out.add(new DailyBar(parseDate(date), open, high, low, close, wholeNumber(row, "acml_vol"),
                     decimal(row, "acml_tr_pbmn"), row.path("mod_yn").asText("").trim()));
         }
         out.sort(Comparator.comparing(DailyBar::tradeDate));
         return out;
+    }
+
+    /** 응답 본문에서 msg_cd 가 토큰 오류 코드인지. HTTP 코드와 상관없이 본문으로 판단한다(KIS 는 200·500 어느 쪽으로도 보낸다). */
+    private boolean isTokenError(String body) {
+        try {
+            return TOKEN_ERROR_CODES.contains(json.readTree(body).path("msg_cd").asText(""));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** 거래량처럼 정수여야 하는 값. 소수가 오면 필드 이름이 든 오류로 실패한다. */
+    private static long wholeNumber(JsonNode row, String field) {
+        try {
+            return decimal(row, field).longValueExact();
+        } catch (ArithmeticException e) {
+            throw new IllegalStateException("daily bar response has a non-integer " + field);
+        }
     }
 
     private static LocalDate parseDate(String s) {
