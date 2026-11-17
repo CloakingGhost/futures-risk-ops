@@ -175,6 +175,62 @@ class KisDailyBarClientTest {
         assertEquals("Bearer dummy-token-2", server.takeRequest().getHeader("authorization"));
     }
 
+    /** KIS 가 만료·무효 토큰을 HTTP 200 본문의 msg_cd 로 알려 주는 경우(가정: EGW00123). 토큰을 버려야 다음 호출이 새로 받는다. */
+    @Test
+    void aTokenErrorCodeInA200BodyDropsTheToken() throws Exception {
+        enqueueToken();
+        server.enqueue(new MockResponse().setBody("{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00123\",\"msg1\":\"synthetic\"}"));
+        server.enqueue(new MockResponse().setBody("{\"access_token\":\"dummy-token-2\",\"expires_in\":86400}"));
+        server.enqueue(new MockResponse().setBody(ok(row("20261113", "400.10", "401.20", "399.00", "400.50", "1000", "5", "N"))));
+
+        assertThrows(IllegalStateException.class,
+                () -> client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)));
+        assertEquals(1, client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)).size());
+        server.takeRequest(); // tokenP
+        server.takeRequest(); // 오류 응답
+        server.takeRequest(); // tokenP 다시
+        assertEquals("Bearer dummy-token-2", server.takeRequest().getHeader("authorization"));
+    }
+
+    /** 같은 코드를 HTTP 500 본문으로 보내는 경우. 상태 코드만 보면 놓친다. */
+    @Test
+    void aTokenErrorCodeInA500BodyDropsTheToken() throws Exception {
+        enqueueToken();
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00121\",\"msg1\":\"synthetic\"}"));
+        server.enqueue(new MockResponse().setBody("{\"access_token\":\"dummy-token-2\",\"expires_in\":86400}"));
+        server.enqueue(new MockResponse().setBody(ok(row("20261113", "400.10", "401.20", "399.00", "400.50", "1000", "5", "N"))));
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)));
+        assertTrue(e.getMessage().contains("500"));
+        client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13));
+        assertEquals(4, server.getRequestCount(), "token, failed call, a new token, the retry");
+    }
+
+    @Test
+    void anUnrelatedErrorCodeKeepsTheToken() throws Exception {
+        enqueueToken();
+        server.enqueue(new MockResponse().setBody("{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00201\",\"msg1\":\"synthetic\"}"));
+        server.enqueue(new MockResponse().setBody(ok(row("20261113", "400.10", "401.20", "399.00", "400.50", "1000", "5", "N"))));
+
+        assertThrows(IllegalStateException.class,
+                () -> client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)));
+        client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13));
+        assertEquals(3, server.getRequestCount(), "one token request only");
+    }
+
+    @Test
+    void aWholeNumberWrittenWithDecimalsIsAcceptedButAFractionFailsNamingTheField() throws Exception {
+        enqueueToken();
+        server.enqueue(new MockResponse().setBody(ok(row("20261113", "400.10", "401.20", "399.00", "400.50", "1000.00", "5", "N"))));
+        server.enqueue(new MockResponse().setBody(ok(row("20261113", "400.10", "401.20", "399.00", "400.50", "1000.5", "5", "N"))));
+
+        assertEquals(1000L, client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)).get(0).volume());
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> client.fetch("F", "A01612", LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 13)));
+        assertTrue(e.getMessage().contains("acml_vol"), e.getMessage());
+    }
+
     @Test
     void aServerErrorKeepsTheToken() throws Exception {
         enqueueToken();

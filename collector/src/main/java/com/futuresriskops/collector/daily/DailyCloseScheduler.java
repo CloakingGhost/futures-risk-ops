@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 public final class DailyCloseScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(DailyCloseScheduler.class);
+    /** 다음 실행을 못 잡았을 때 다시 시도하기까지. */
+    private static final Duration PLAN_RETRY = Duration.ofHours(1);
 
     private final DailyCloseJob job;
     private final Clock clock;
@@ -41,11 +43,26 @@ public final class DailyCloseScheduler {
         if (runOnStart) {
             executor.execute(this::runStartup);
         }
-        scheduleNext();
+        scheduleNextSafely();
     }
 
     public void stop() {
         executor.shutdownNow();
+    }
+
+    /**
+     * 다음 실행을 잡는다. 못 잡으면(예: 14일 넘게 주간장이 없는 캘린더) 로그를 남기고 한 시간 뒤에 다시 시도한다. 여기서 예외를 밖으로
+     * 내보내면 타이머가 다시 걸리지 않아 일봉이 조용히 멈추고, 시작할 때는 collector 전체가 못 뜨기 때문이다.
+     */
+    private void scheduleNextSafely() {
+        try {
+            scheduleNext();
+        } catch (RuntimeException e) {
+            LOG.error("could not plan the next daily close, retrying in {}: {}", PLAN_RETRY, e.toString());
+            if (!executor.isShutdown()) {
+                executor.schedule(this::scheduleNextSafely, PLAN_RETRY.toMillis(), TimeUnit.MILLISECONDS);
+            }
+        }
     }
 
     private void scheduleNext() {
@@ -74,7 +91,7 @@ public final class DailyCloseScheduler {
             LOG.warn("daily close crashed: {}", e.toString());
         } finally {
             if (!executor.isShutdown()) {
-                scheduleNext();
+                scheduleNextSafely();
             }
         }
     }
