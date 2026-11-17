@@ -8,6 +8,13 @@
 set -euo pipefail
 
 NAME=margin-watch
+case "${1:-}" in
+    "" | --import) ;;
+    *)
+        echo "usage: $0 [--import]" >&2
+        exit 2
+        ;;
+esac
 DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGES=(futures-risk-ops-collector:local futures-risk-ops-risk:local)
 
@@ -22,6 +29,8 @@ docker info >/dev/null 2>&1 || { echo "ERROR: docker is not running" >&2; exit 1
 
 if k3d cluster list "$NAME" >/dev/null 2>&1; then
     echo "cluster '$NAME' already exists (not recreated)"
+    # 정지돼 있으면(k3d cluster stop 뒤 등) 시작한다. 이미 돌고 있으면 아무 일도 하지 않는다
+    k3d cluster start "$NAME"
 else
     echo "creating cluster '$NAME' from $DIR/cluster.yaml"
     k3d cluster create --config "$DIR/cluster.yaml"

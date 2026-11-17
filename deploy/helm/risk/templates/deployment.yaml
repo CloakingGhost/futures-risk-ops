@@ -7,7 +7,8 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/part-of: margin-watch
 spec:
-  replicas: {{ .Values.replicaCount | default 1 }}
+  # values.yaml 기본이 1 이고 values.schema.json 이 1 미만을 거절한다
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: risk
