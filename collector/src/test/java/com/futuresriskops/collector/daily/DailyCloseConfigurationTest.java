@@ -22,7 +22,8 @@ class DailyCloseConfigurationTest {
 
     private static CollectorProperties props(CollectorProperties.Approval.Mode mode) {
         return new CollectorProperties(true, TickTrade.Source.KIS, "ws://127.0.0.1:1/x", List.of(), null, null,
-                new CollectorProperties.Session("classpath:session-calendar.yaml", false, Duration.ofMinutes(1)),
+                new CollectorProperties.Session("classpath:session-calendar.yaml", false, Duration.ofMinutes(1),
+                        Duration.ofSeconds(10)),
                 Duration.ofSeconds(5), false,
                 new CollectorProperties.Approval(mode, "https://127.0.0.1:1", "TEST_NO_SUCH_APP_KEY",
                         "TEST_NO_SUCH_APP_SECRET", null),
