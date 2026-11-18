@@ -98,7 +98,8 @@ Get-ChildItem <위 폴더> -Recurse -Filter helm.exe    # windows-amd64\helm.exe
 시스템 설정은 더 건드리지 않고, 작업 중인 셸에서만 위 두 폴더를 PATH 에 더했다.
 
 ```bash
-export PATH="$PATH:/c/Users/Lee/AppData/Local/Microsoft/WinGet/Packages/Helm.Helm_Microsoft.Winget.Source_8wekyb3d8bbwe/windows-amd64:/c/Users/Lee/AppData/Local/Microsoft/WinGet/Packages/k3d.k3d_Microsoft.Winget.Source_8wekyb3d8bbwe"
+# <사용자 폴더> 는 본인의 Windows 사용자 폴더(Git Bash 표기, 예: /c/Users/<이름>)로 바꾼다
+export PATH="$PATH:<사용자 폴더>/AppData/Local/Microsoft/WinGet/Packages/Helm.Helm_Microsoft.Winget.Source_8wekyb3d8bbwe/windows-amd64:<사용자 폴더>/AppData/Local/Microsoft/WinGet/Packages/k3d.k3d_Microsoft.Winget.Source_8wekyb3d8bbwe"
 helm version --short; k3d version; kubectl version --client
 ```
 
