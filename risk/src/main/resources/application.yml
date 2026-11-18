@@ -20,6 +20,12 @@ management:
     web:
       exposure:
         include: health
+  endpoint:
+    health:
+      # /actuator/health/liveness·readiness. 쿠버네티스 probe 가 쓴다(Helm 차트). 스프링은 쿠버네티스 안에서만 자동으로 켜서,
+      # compose·gradlew 에서도 같은 경로가 열리도록 명시한다. liveness 는 DB 와 상관없이 앱이 살아 있는지만 본다.
+      probes:
+        enabled: true
 
 springdoc:
   swagger-ui:
@@ -29,7 +35,7 @@ risk:
   # 읽을 데이터 출처(tick_trade.source). collector 와 같은 값을 쓴다: SIMULATOR, KIS_PAPER, KIS, REPLAY
   source: SIMULATOR
   margin:
-    # 코스피200 선물 증거금률(%). 출처: 한국투자증권, 2026년 10월 기준(사용자 확인 2026-10-30).
+    # 코스피200 선물 증거금률(%). 출처: 한국투자증권, 2026년 10월 기준(사용자 확인 2026-10-30). 11월에도 같다고 사용자가 확인(2026-11-17).
     # 거래소가 거의 매달 바꾼다. 매달 첫 거래일에 증권사 안내를 보고 고치고, 확인 날짜도 같이 고친다.
     initial-rate: 21.750
     maintenance-rate: 14.500

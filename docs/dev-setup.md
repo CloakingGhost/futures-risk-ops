@@ -75,6 +75,23 @@ docker compose --profile app down            # 끄기. DB 데이터는 남는다
 - 앱 포트(collector 8081, risk 8082)는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 가 있으면 먼저 끈다(포트가 겹친다).
 - 이미지 하나만 빌드할 때는 저장소 루트에서 `docker build -f collector/Dockerfile -t futures-risk-ops-collector:local .` 처럼 한다. 테스트는 이미지 안에서 돌리지 않는다.
 
+## 로컬 쿠버네티스 (k3d, Day 7)
+
+PC 안에 k3d 클러스터를 만든다(서버 1, Traefik 끔, API 는 `127.0.0.1:6550` 에만). 도구 설치와 문제 해결은 [docs/ops-log/2026-11-16-k8s-tools-install.md](ops-log/2026-11-16-k8s-tools-install.md), 왜 k3d 인지는 [docs/adr/0001-local-cluster.md](adr/0001-local-cluster.md).
+
+```
+./deploy/k3d/up.sh              # 클러스터 만들기(이미 있으면 그대로). 처음 34초, 다시 만들 때 19초 정도
+./deploy/k3d/up.sh --import     # 위에 더해 futures-risk-ops-collector:local, futures-risk-ops-risk:local 이미지를 넣기(먼저 compose 로 빌드)
+./deploy/k3d/down.sh            # 지우기(클러스터 안 데이터도 사라진다)
+./deploy/helm/check.sh          # Helm 차트 검사
+kubectl --context k3d-margin-watch get nodes
+```
+
+- `helm`, `k3d` 가 `command not found` 이면 새 터미널을 연다(winget 이 PATH 에 넣는다). 그래도 안 되면 설치 기록의 '새 터미널에서 쓰기'.
+- **이 단계에서는 클러스터에 앱을 설치하지 않는다**(Day 8: DB StatefulSet, Secret 스크립트, Helm 배포). 차트는 `deploy/helm/collector`, `deploy/helm/risk`.
+- 장 시간 캘린더는 차트에 복사하지 않고 설치할 때 원본을 넣는다: `--set-file sessionCalendar=config/session-calendar.yaml`.
+- **클러스터에 collector 를 띄우기 전에 compose collector 를 먼저 끈다**(`docker compose --profile app stop collector`). KIS 접속은 하나라서 둘이 붙으면 충돌하고 체결이 중복 적재된다.
+
 ## KIS 실시간 체결 받기
 
 환경변수를 불러온 터미널에서 모의투자를 먼저 확인한다. 자세한 절차와 볼 것은 `docs/day1-hands-on.md` 7번.

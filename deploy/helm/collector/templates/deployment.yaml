@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # 리소스 이름(Deployment, ConfigMap, Service)을 릴리스 이름과 상관없이 collector 로 고정한 것은 의도다. 다른 릴리스 이름으로 두 번째
+  # collector 를 설치하려 하면 이름이 겹쳐 Helm 이 거절한다. KIS 접속은 하나라서 collector 는 한 번에 하나만 떠야 한다(collector/CLAUDE.md).
+  name: collector
+  labels:
+    app.kubernetes.io/name: collector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: margin-watch
+spec:
+  # 값이 아니다. collector 를 둘 띄우면 KIS 웹소켓 접속이 충돌하고 체결이 중복 적재된다(collector/CLAUDE.md).
+  # check.sh 가 렌더링 결과에서 이 값과 Recreate 를 확인한다.
+  replicas: 1
+  # 롤링 업데이트는 새 파드를 먼저 띄워서 잠깐 두 개가 동시에 KIS 에 붙는다. 기존 것을 내린 뒤 새로 띄운다.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: collector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: collector
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: margin-watch
+      annotations:
+        # 캘린더가 바뀌면 파드를 다시 띄운다(환경변수가 아니라 파일로 읽어서 자동으로 바뀌지 않는다)
+        checksum/session-calendar: {{ required "sessionCalendar is required: helm install collector deploy/helm/collector --set-file sessionCalendar=config/session-calendar.yaml" .Values.sessionCalendar | sha256sum }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: collector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "Never" }}
+          ports:
+            - name: management
+              containerPort: 8081
+          env:
+            - name: TZ
+              value: Asia/Seoul
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.profile | quote }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.datasource.url | quote }}
+            # 키와 DB 계정은 Secret 에서만 읽는다. 차트에는 Secret 이름만 있고 값은 없다.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.db }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.db }}
+                  key: POSTGRES_PASSWORD
+            {{- if eq .Values.profile "kis-paper" }}
+            - name: KIS_PAPER_APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.kis }}
+                  key: KIS_PAPER_APP_KEY
+            - name: KIS_PAPER_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.kis }}
+                  key: KIS_PAPER_APP_SECRET
+            {{- else }}
+            - name: KIS_APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.kis }}
+                  key: KIS_APP_KEY
+            - name: KIS_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.kis }}
+                  key: KIS_APP_SECRET
+            {{- end }}
+            # 장 시간 캘린더는 ConfigMap 의 파일을 읽는다(원본은 저장소 루트 config/session-calendar.yaml 한 곳)
+            - name: COLLECTOR_SESSION_CALENDAR
+              value: file:/config/session-calendar.yaml
+            - name: COLLECTOR_DAILYCLOSE_RUNONSTART
+              value: {{ .Values.dailyClose.runOnStart | default false | quote }}
+            - name: COLLECTOR_DAILYCLOSE_MARKETS
+              value: {{ join "," (.Values.dailyClose.markets | default (list "F")) | quote }}
+            - name: COLLECTOR_DAILYCLOSE_LOOKBACKDAYS
+              value: {{ .Values.dailyClose.lookbackDays | default 5 | quote }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.javaOpts | quote }}
+          volumeMounts:
+            - name: session-calendar
+              mountPath: /config
+              readOnly: true
+          # 시작은 Flyway 마이그레이션 때문에 느릴 수 있다. startupProbe 가 통과할 때까지 아래 둘은 시작하지 않는다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: session-calendar
+          configMap:
+            name: collector-session-calendar

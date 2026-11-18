@@ -104,7 +104,8 @@ public class IngestService implements SmartLifecycle {
         TickTrade.Source source = p.source();
         this.clock = clock;
         this.calendar = calendar;
-        this.gate = new SessionGate(calendar, p.session().gating(), p.session().connectLead());
+        this.gate = new SessionGate(calendar, p.session().gating(), p.session().connectLead(),
+                p.session().disconnectLinger());
         this.stalls = new StallWatch(p.stallThreshold());
         this.writer = new TickBatchWriter<>(sink, p.batch().queueCapacity(), p.batch().maxSize(),
                 p.batch().flushIntervalMs());

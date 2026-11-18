@@ -63,8 +63,10 @@ public record CollectorProperties(boolean enabled, TickTrade.Source source, Stri
      * @param calendar     캘린더 YAML 위치(스프링 리소스 표기). 기본은 jar 에 넣은 config/session-calendar.yaml
      * @param gating       true 면 세션 시간에만 접속한다(KIS 프로필). 시뮬레이터 기본은 false
      * @param connectLead  세션 시작 몇 분 전에 접속할지
+     * @param disconnectLinger 세션이 끝난 뒤 접속을 얼마나 더 유지할지. 마감 정각에 찍히는 종가 단일가 체결이 정각 뒤에 도착해도
+     *                     받으려는 것이다(2026-11-18 실전에서 마감 체결이 정각 0.2~1.6초 전에 도착해 여유가 0.6초뿐이었다)
      */
-    public record Session(String calendar, boolean gating, Duration connectLead) {
+    public record Session(String calendar, boolean gating, Duration connectLead, Duration disconnectLinger) {
     }
 
     /**

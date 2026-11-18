@@ -1,0 +1,30 @@
+# 로컬 쿠버네티스(k3d) 클러스터 설정. 이 파일만으로 같은 클러스터를 다시 만든다(deploy/k3d/up.sh).
+# 왜 k3d 인지: docs/adr/0001-local-cluster.md
+#
+#   서버 1, 에이전트 0   PC 한 대에서 노드 하나면 충분하다(메모리를 아낀다)
+#   Traefik 끔           Ingress 는 쓰지 않는다. 바깥으로 여는 포트가 없다
+#   API 127.0.0.1        쿠버네티스 API 도 이 PC 안에서만 열린다(다른 기기에서 접속되지 않는다)
+#   k3s 이미지 고정      기본 이미지는 시간이 지나면 바뀐다. 지웠다 다시 만들어도 같은 버전이 나오게 고정한다.
+#                        kubectl 클라이언트(v1.32)와 같은 마이너 버전이다(kubectl 은 서버와 ±1 마이너까지만 지원한다)
+#
+# 클러스터에 앱을 설치하지는 않는다(Day 8). 이미지는 `k3d image import` 로 넣는다(up.sh --import).
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: margin-watch
+servers: 1
+agents: 0
+image: rancher/k3s:v1.32.5-k3s1
+kubeAPI:
+  host: "127.0.0.1"
+  hostIP: "127.0.0.1"
+  hostPort: "6550"
+options:
+  k3d:
+    wait: true
+    timeout: "180s"
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*

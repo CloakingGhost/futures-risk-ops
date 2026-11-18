@@ -1,0 +1,30 @@
+# risk 차트 값. collector 와 달리 읽기 전용 API 라서 복제본 수를 값으로 바꿀 수 있다(기본 1).
+
+# 이미지는 레지스트리 없이 `k3d image import` 로 넣는다(deploy/k3d/up.sh --import). GHCR 푸시는 Day 11 CI 에서 한다.
+image:
+  repository: futures-risk-ops-risk
+  tag: local
+  pullPolicy: Never
+
+replicaCount: 1
+
+# 읽을 데이터 출처(tick_trade.source). collector 의 프로필과 맞춘다: kis 면 KIS, kis-paper 면 KIS_PAPER
+source: KIS
+
+# Secret 은 이름만 받는다. 값은 이 차트에 없다(절대 규칙 2). 실제 Secret 은 Day 8 스크립트가 만든다.
+secrets:
+  # 키: POSTGRES_USER, POSTGRES_PASSWORD
+  db: postgres-credentials
+
+datasource:
+  url: jdbc:postgresql://postgres:5432/futures_risk_ops
+
+# 힙은 컨테이너 메모리 한도(limits)의 75% 까지
+javaOpts: "-XX:MaxRAMPercentage=75"
+
+# collector 와 같다
+resources:
+  requests:
+    memory: 256Mi
+  limits:
+    memory: 512Mi

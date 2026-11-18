@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "collector values",
+  "description": "additionalProperties:false 라서 replicas, replicaCount, strategy, autoscaling 같은 키는 거절된다. collector 는 한 번에 하나만 띄운다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "profile", "secrets", "datasource", "sessionCalendar"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Never", "IfNotPresent", "Always"] }
+      }
+    },
+    "profile": { "enum": ["kis", "kis-paper"] },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kis", "db"],
+      "properties": {
+        "kis": { "type": "string", "minLength": 1 },
+        "db": { "type": "string", "minLength": 1 }
+      }
+    },
+    "datasource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "pattern": "^jdbc:postgresql://" }
+      }
+    },
+    "sessionCalendar": { "type": "string" },
+    "dailyClose": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runOnStart": { "type": "boolean" },
+        "markets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["F", "CM"] }
+        },
+        "lookbackDays": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "javaOpts": { "type": "string" },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    }
+  }
+}

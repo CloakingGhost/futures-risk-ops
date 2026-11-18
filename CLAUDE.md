@@ -47,6 +47,8 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 | `collector` | 있음 | 시작할 때 Flyway 적용, KIS 종목 마스터를 받아 instrument Upsert(시작 + 매일 07:30), 근월물 자동 선택과 만기 롤오버(만기 전날부터 두 월물 겹침 구독), 세션별 TR 전환(주간 H0IFCNT0·H0IFASP0, 야간 H0MFCNT0), 웹소켓 수신·PINGPONG, 재접속 상태 머신(지수 백오프 + 지터, 재구독), 파싱, 세션 캘린더로 거래일·세션 계산, 누락·수신 공백 감지, 장 시간에만 접속(KIS 프로필), tick_trade·tick_quote 배치 적재(체결 중복은 ON CONFLICT DO NOTHING), 거래일 주간장 마감 뒤 KIS 일봉(FHKIF03020100)을 daily_bar 에 upsert(최근 N영업일, [docs/kis-daily-bar.md](docs/kis-daily-bar.md)), 지표 10종(`/actuator/prometheus`, 127.0.0.1:8081) |
 | `risk` | 있음 | collector 가 쌓은 tick_trade 를 읽기만 한다(Flyway 끔). 단일 선물 가상 포지션의 손익·위탁/유지증거금·마진콜·마진콜 가격, 베이시스(KIS 체결 메시지 값), 거래일별 미결제약정. REST API 3개와 health, OpenAPI(127.0.0.1:8082, [docs/risk-api.md](docs/risk-api.md)) |
 
+| `deploy` | 있음 | 로컬 쿠버네티스(k3d)와 Helm 차트. `deploy/k3d`(cluster.yaml, up.sh, down.sh), `deploy/helm/collector`(replicas 1 고정·Recreate·HPA 없음)·`risk`, `deploy/helm/check.sh`(차트 검사). 클러스터에 앱 설치는 Day 8. 왜 k3d 인지는 [docs/adr/0001-local-cluster.md](docs/adr/0001-local-cluster.md) |
+
 ```
 ./gradlew test                       # 전체 테스트 (커밋 전 필수)
 ./gradlew :simulator:test            # 시뮬레이터 테스트만
@@ -55,6 +57,8 @@ KIS(한국투자증권) Open API로 **코스피200 선물·옵션 시세를 수�
 ./gradlew :collector:bootRun                                   # 시뮬레이터에 붙어 수집 (DB 환경변수 필요)
 ./gradlew :risk:bootRun                                        # 리스크 API (DB 환경변수 필요, 127.0.0.1:8082)
 docker compose --profile app up -d --build                     # DB + collector + risk 컨테이너, KIS 실전 시세 (docs/dev-setup.md)
+./deploy/k3d/up.sh [--import]                                  # PC 안 k3d 클러스터 만들기, --import 로 collector·risk 이미지 넣기 (down.sh 로 지움)
+./deploy/helm/check.sh                                         # Helm 차트 검사(helm lint·template, collector replicas 1·Recreate 확인)
 ```
 
 - 선물만 다룬다. 옵션은 v0.1 범위에서 뺐다(README 로드맵).

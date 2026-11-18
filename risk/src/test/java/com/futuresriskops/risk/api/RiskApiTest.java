@@ -172,4 +172,11 @@ class RiskApiTest {
         mvc.perform(get("/swagger-ui.html")).andExpect(status().is3xxRedirection());
         mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
     }
+
+    /** 쿠버네티스 probe 경로(Helm 차트). 쿠버네티스 밖에서도 열려 있어야 compose·테스트와 같은 경로를 쓴다. */
+    @Test
+    void livenessAndReadinessProbesAreOpen() throws Exception {
+        mvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+        mvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    }
 }

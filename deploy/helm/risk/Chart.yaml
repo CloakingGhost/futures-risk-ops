@@ -1,0 +1,6 @@
+apiVersion: v2
+name: risk
+description: 증거금·마진콜 리스크 API. collector 가 쌓은 tick_trade 를 읽기만 한다(쓰지 않는다). 읽기 전용이라 복제본 수는 값으로 바꿀 수 있다.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

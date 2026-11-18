@@ -73,6 +73,16 @@ class KisProfileConfigTest {
     }
 
     @Test
+    void everyProfileKeepsTheConnectionForTenSecondsAfterTheSessionCloses() {
+        // 마감 종가 단일가 체결이 정각 0.2~1.6초 전에 도착해 여유가 0.6초뿐이었다(2026-11-18 실전). 값이 빠지면 null 이 된다
+        assertEquals(java.time.Duration.ofSeconds(10), bind(load("application.yml")).session().disconnectLinger());
+        assertEquals(java.time.Duration.ofSeconds(10),
+                bind(load("application.yml"), load("application-kis.yml")).session().disconnectLinger());
+        assertEquals(java.time.Duration.ofSeconds(10),
+                bind(load("application.yml"), load("application-kis-paper.yml")).session().disconnectLinger());
+    }
+
+    @Test
     void defaultsPickTheNearMonthWithQuotesAndOnlyKisProfilesDownloadTheMaster() {
         CollectorProperties sim = bind(load("application.yml"));
         assertEquals(SubscriptionPlanner.Mode.AUTO, sim.instruments().mode());
@@ -148,6 +158,14 @@ class KisProfileConfigTest {
         assertTrue(bindDaily(load("application.yml"), load("application-kis.yml")).enabled());
         assertFalse(bindDaily(load("application.yml"), load("application-kis.yml")).runOnStart(), "the first real call turns it on by hand");
         assertTrue(bindDaily(load("application.yml"), load("application-kis-paper.yml")).enabled());
+    }
+
+    /** Helm 차트의 probe(/actuator/health/liveness·readiness)가 쓰는 설정. 빠지면 probe 가 404 로 실패해 파드가 계속 재시작된다. */
+    @Test
+    void kubernetesProbesAreEnabledOutsideKubernetesToo() {
+        Properties base = load("application.yml");
+        assertEquals("true", base.getProperty("management.endpoint.health.probes.enabled"));
+        assertEquals("health,prometheus", base.getProperty("management.endpoints.web.exposure.include"));
     }
 
     @Test

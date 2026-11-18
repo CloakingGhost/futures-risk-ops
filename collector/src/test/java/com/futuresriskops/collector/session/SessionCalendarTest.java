@@ -79,6 +79,52 @@ class SessionCalendarTest {
         assertFalse(cal.isOpen(kst("2026-11-01T10:00:00")), "Sunday");
     }
 
+    // 야간 종가 단일가 체결은 마감 시각 정각(06:00:00)에 찍힌다(2026-11-18 실전에서 관찰, 아래 값은 합성).
+    // 세션 구간(isOpen)은 마감을 포함하지 않지만, 체결은 그 마감 체결이 속한 야간장으로 분류해야 한다.
+
+    @Test
+    void theClosingAuctionTickStampedExactlyAtNightCloseBelongsToThatNight() {
+        var closing = at("2026-10-28T06:00:00");
+        assertEquals(TradingSession.NIGHT, closing.session());
+        assertEquals(d("2026-10-28"), closing.tradeDate());
+        assertEquals(at("2026-10-28T05:59:59").tradeDate(), closing.tradeDate());
+    }
+
+    @Test
+    void theClosingTickIsStillInTheSameSecondWhenItCarriesFractions() {
+        var p = cal.classify(ZonedDateTime.parse("2026-10-28T06:00:00.500+09:00[Asia/Seoul]"));
+        assertEquals(TradingSession.NIGHT, p.session());
+    }
+
+    @Test
+    void theSecondAfterTheNightClosesIsDayAgain() {
+        var p = at("2026-10-28T06:00:01");
+        assertEquals(TradingSession.DAY, p.session());
+        assertEquals(d("2026-10-28"), p.tradeDate());
+    }
+
+    @Test
+    void theFridayNightClosingTickOnSaturdayBelongsToMonday() {
+        var p = at("2026-10-31T06:00:00");
+        assertEquals(TradingSession.NIGHT, p.session());
+        assertEquals(d("2026-11-02"), p.tradeDate(), "it must not become a Saturday trade date");
+    }
+
+    @Test
+    void theDayClosingAuctionTickStaysInTheDaySession() {
+        var p = at("2026-10-28T15:45:00");
+        assertEquals(TradingSession.DAY, p.session());
+        assertEquals(d("2026-10-28"), p.tradeDate());
+    }
+
+    @Test
+    void placeKeepsTheClosingTickInTheNightEvenWhenItIsReceivedASecondLater() {
+        var p = cal.place(LocalTime.of(6, 0, 0), kst("2026-10-28T06:00:01"));
+        assertEquals(kst("2026-10-28T06:00:00"), p.tradedAt().toInstant());
+        assertEquals(TradingSession.NIGHT, p.session());
+        assertEquals(d("2026-10-28"), p.tradeDate());
+    }
+
     @Test
     void nightBeforeAHolidaySkipsToTheTradingDayAfterIt() {
         // 12/24(목) 야간장 → 12/25 휴장, 12/26·27 주말 → 12/28(월)
@@ -215,5 +261,17 @@ class SessionCalendarTest {
                 TestCalendars.FIXED.replace("2026-12-25", "2026-13-25")));
         assertThrows(IllegalArgumentException.class, () -> TestCalendars.fromYaml(
                 TestCalendars.FIXED.replace("close: \"06:00\"", "close: \"20:00\"")));
+    }
+
+    @Test
+    void anNightThatClosesWhenTheDayOpensIsRejected() {
+        // 야간 마감 정각(1초)까지 야간으로 분류하므로, 주간 개장이 같거나 이르면 개장 체결이 야간이 된다
+        assertThrows(IllegalArgumentException.class, () -> TestCalendars.fromYaml(
+                TestCalendars.FIXED.replace("close: \"06:00\"", "close: \"08:45\"")));
+        assertThrows(IllegalArgumentException.class, () -> TestCalendars.fromYaml(
+                TestCalendars.FIXED.replace("close: \"06:00\"", "close: \"08:44:59\"")));
+        // 개장 1초 전에 닫는 설정까지는 허용한다(마감 정각 1초 구간이 개장 1초 전에 끝난다)
+        assertTrue(TestCalendars.fromYaml(
+                TestCalendars.FIXED.replace("close: \"06:00\"", "close: \"08:44\"")).isOpen(kst("2026-10-28T08:50:00")));
     }
 }
