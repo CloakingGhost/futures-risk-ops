@@ -80,6 +80,32 @@ class TickTradeRepositoryTest {
         assertEquals(2, rows());
     }
 
+    /**
+     * 2026-11-18 에 실제로 일어난 일의 합성 재현. 야간 종가 단일가 체결(06:00:00)이 DAY 로 분류되면, 같은 누적거래량을 가진
+     * 그날 주간 체결이 (종목, 거래일, 세션, 출처, 누적거래량) 중복으로 조용히 버려졌다. 둘 다 남아야 한다.
+     */
+    @Test
+    void theNightClosingTickDoesNotSwallowADayTradeWithTheSameAccumulatedVolume() {
+        var calendar = com.futuresriskops.collector.session.TestCalendars.fixed();
+        var zone = java.time.ZoneId.of("Asia/Seoul");
+        Instant closingReceived = java.time.ZonedDateTime.of(2026, 10, 28, 6, 0, 1, 0, zone).toInstant();
+        Instant dayReceived = java.time.ZonedDateTime.of(2026, 10, 28, 10, 9, 0, 0, zone).toInstant();
+        var nightClosing = new com.futuresriskops.collector.kis.H0ifcnt0Trade("A01612", java.time.LocalTime.of(6, 0, 0),
+                new BigDecimal("400.05"), 36, 500, 50_001, null, null, null);
+        var dayTrade = new com.futuresriskops.collector.kis.H0ifcnt0Trade("A01612", java.time.LocalTime.of(10, 9, 0),
+                new BigDecimal("400.10"), 1, 500, 50_001, null, null, null);
+
+        int stored = repo.insertBatch(List.of(
+                TickTrade.of(nightClosing, closingReceived, TickTrade.Source.SIMULATOR, calendar),
+                TickTrade.of(dayTrade, dayReceived, TickTrade.Source.SIMULATOR, calendar)));
+
+        assertEquals(2, stored, "the day trade must not be dropped as a duplicate of the night closing tick");
+        assertEquals("NIGHT", jdbc.queryForObject(
+                "SELECT session FROM tick_trade WHERE qty = 36", String.class));
+        assertEquals("DAY", jdbc.queryForObject(
+                "SELECT session FROM tick_trade WHERE qty = 1", String.class));
+    }
+
     @Test
     void sameAccVolumeInAnotherSessionIsADifferentTrade() {
         repo.insertBatch(List.of(trade(10, TradingSession.DAY, TickTrade.Source.SIMULATOR)));

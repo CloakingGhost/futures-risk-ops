@@ -65,6 +65,21 @@ class TradeDateBackfillTest {
     }
 
     @Test
+    void movesAClosingTickStampedAtNightCloseFromDayBackToTheNight() {
+        // 야간 종가 단일가 체결(06:00:00)이 DAY 로 쌓여 있던 경우(2026-11-18 에 실전에서 발견, 값은 합성)
+        insert("2026-10-28T05:59:55", "2026-10-28", "NIGHT", 40); // 같은 야간의 마지막 일반 체결
+        insert("2026-10-28T06:00:00", "2026-10-28", "DAY", 76);   // 마감 체결: 야간으로 돌아가야 한다
+        insert("2026-10-28T10:09:00", "2026-10-28", "DAY", 5);    // 진짜 주간 체결: 그대로
+
+        TradeDateBackfill.Result r = new TradeDateBackfill(jdbc).run(TestCalendars.fixed());
+
+        assertEquals(new TradeDateBackfill.Result(3, 1, 0), r);
+        assertEquals("NIGHT", jdbc.queryForObject("SELECT session FROM tick_trade WHERE acc_volume = 76", String.class));
+        assertEquals("DAY", jdbc.queryForObject("SELECT session FROM tick_trade WHERE acc_volume = 5", String.class));
+        assertEquals(LocalDate.of(2026, 10, 28), tradeDateOf(76));
+    }
+
+    @Test
     void aRowThatWouldCollideIsLeftAsItIsAndCounted() {
         // 같은 누적거래량이 이미 월요일 야간 행으로 있으면(같은 체결로 본다) 옮기지 않는다
         insert("2026-11-01T23:00:00", "2026-11-02", "NIGHT", 7); // 일요일 밤 시뮬레이터 체결, 이미 월요일로 적힘
