@@ -73,6 +73,16 @@ class KisProfileConfigTest {
     }
 
     @Test
+    void everyProfileKeepsTheConnectionForTenSecondsAfterTheSessionCloses() {
+        // 마감 종가 단일가 체결이 정각 0.2~1.6초 전에 도착해 여유가 0.6초뿐이었다(2026-11-18 실전). 값이 빠지면 null 이 된다
+        assertEquals(java.time.Duration.ofSeconds(10), bind(load("application.yml")).session().disconnectLinger());
+        assertEquals(java.time.Duration.ofSeconds(10),
+                bind(load("application.yml"), load("application-kis.yml")).session().disconnectLinger());
+        assertEquals(java.time.Duration.ofSeconds(10),
+                bind(load("application.yml"), load("application-kis-paper.yml")).session().disconnectLinger());
+    }
+
+    @Test
     void defaultsPickTheNearMonthWithQuotesAndOnlyKisProfilesDownloadTheMaster() {
         CollectorProperties sim = bind(load("application.yml"));
         assertEquals(SubscriptionPlanner.Mode.AUTO, sim.instruments().mode());

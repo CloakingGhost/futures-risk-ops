@@ -181,7 +181,16 @@ public final class SessionCalendar {
 
     /** 수집기가 연결해 있어야 하는가: 세션 안이거나, lead 안에 세션이 열린다(시작 1분 전 접속). */
     public boolean shouldBeConnected(Instant now, Duration lead) {
-        return isOpen(now) || isOpen(now.plus(lead));
+        return shouldBeConnected(now, lead, Duration.ZERO);
+    }
+
+    /**
+     * {@link #shouldBeConnected(Instant, Duration)} 에 마감 뒤 유지 시간을 더한 것: 세션이 끝난 뒤 linger 안에도 붙어 있는다.
+     * 마감 종가 단일가 체결은 마감 정각에 찍히는데 PC 시계가 KIS 보다 앞서면 정각 뒤에 도착할 수 있어서다.
+     * 세션이 끝난 지 linger 가 지나기 전이면, linger 만큼 전에는 세션 안이었다.
+     */
+    public boolean shouldBeConnected(Instant now, Duration lead, Duration linger) {
+        return isOpen(now) || isOpen(now.plus(lead)) || (!linger.isZero() && isOpen(now.minus(linger)));
     }
 
     /**
