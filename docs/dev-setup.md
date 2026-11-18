@@ -58,15 +58,18 @@ docker compose exec postgres psql -U <POSTGRES_USER> -d futures_risk_ops -c "sel
 `docker compose up -d` 는 지금처럼 PostgreSQL 만 띄운다. 앱까지 띄울 때만 `--profile app` 을 붙인다.
 
 ```
-docker compose --profile app up -d --build   # PostgreSQL + collector + risk (KIS 모의투자). 처음 빌드는 몇 분 걸린다
+docker compose --profile app up -d --build   # PostgreSQL + collector + risk (KIS 실전 시세). 처음 빌드는 몇 분 걸린다
 docker compose --profile app ps              # collector, risk 가 (healthy) 인지
 curl http://127.0.0.1:8082/api/risk/basis    # 리스크 API (docs/risk-api.md)
 docker compose --profile app logs -f collector
 docker compose --profile app down            # 끄기. DB 데이터는 남는다(-v 를 붙이면 DB 볼륨까지 지운다)
 ```
 
-- 기본은 KIS 모의투자다(`.env` 에 `KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` 필요). collector 는 장 시간에만 KIS 에 붙는다.
-- 실전은 `.env` 에 `COLLECTOR_PROFILE=kis`, `RISK_SOURCE=KIS`.
+- 기본은 KIS 실전 시세다(2026-11-16 변경, 이전 기본은 모의투자). `.env` 에 `KIS_APP_KEY`, `KIS_APP_SECRET` 이 있어야 한다. 없으면 collector 가 시작할 때 그 이름을 알려 주며 실패한다. collector 는 장 시간에만 KIS 에 붙고, 이 저장소에는 주문 코드가 없다. 계좌번호는 어디서도 읽지 않는다.
+- 모의투자는 `.env` 에 `COLLECTOR_PROFILE=kis-paper`, `RISK_SOURCE=KIS_PAPER` (`KIS_PAPER_APP_KEY`, `KIS_PAPER_APP_SECRET` 필요). 개발·테스트는 모의투자나 시뮬레이터로 한다.
+- 실전 DB 와 모의투자 DB 를 섞지 않는다. 같은 DB 에 두 프로필을 번갈아 쓰면 `source` 열(`KIS`, `KIS_PAPER`)로 구분되어 쌓이지만, risk 는 `RISK_SOURCE` 하나만 읽는다.
+- **KIS 접속은 하나다.** compose collector 가 떠 있는 동안 `./gradlew :collector:bootRun` 이나 다른 collector 를 띄우지 않는다(접속 충돌, 중복 적재).
+- kis·kis-paper 프로필은 거래일 주간장이 끝난 뒤(보통 16:00, 마감이 늦은 날은 마감 15분 뒤) KIS 일봉을 받아 `daily_bar` 에 넣는다. 설정은 `collector.daily-close.*`, 내용과 조회 쿼리는 [docs/kis-daily-bar.md](kis-daily-bar.md), 마지막 성공 시각은 지표 `collector_daily_close_last_success_timestamp_seconds`.
 - 시뮬레이터는 KIS 에 붙을 수 없을 때나 장애 시나리오를 만들 때만 쓴다: `.env` 에 `COLLECTOR_PROFILE=default`, `RISK_SOURCE=SIMULATOR` 를 넣고 `docker compose --profile app --profile sim up -d --build`.
 - 이미지에는 키가 없다. `.dockerignore` 가 `.env` 를 빌드에서 빼고, 키와 DB 계정은 compose 가 실행할 때 환경변수로만 넘긴다.
 - 앱 포트(collector 8081, risk 8082)는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 가 있으면 먼저 끈다(포트가 겹친다).
@@ -84,7 +87,7 @@ docker compose --profile app down            # 끄기. DB 데이터는 남는다
 - 도메인(공식 샘플 `kis_devlp.yaml`): 모의투자 웹소켓 `ws://ops.koreainvestment.com:31000`, REST `https://openapivts.koreainvestment.com:29443` / 실전 웹소켓 `:21000`, REST `https://openapi.koreainvestment.com:9443`. 접속키는 `/oauth2/Approval` 로 받는다.
 - 프로필마다 읽는 환경변수가 다르다. `kis` 는 `KIS_APP_KEY`/`KIS_APP_SECRET`, `kis-paper` 는 `KIS_PAPER_APP_KEY`/`KIS_PAPER_APP_SECRET` 이라, 두 쌍을 `.env` 에 같이 두고 프로필만 바꿔도 된다. 쓰는 쪽 값이 없으면 시작할 때 그 환경변수 이름을 알려 주며 실패한다.
 - 구독 키(`tr_key`)가 `A01612` 형식으로 되는지 확인한다. 안 되면 `--collector.symbols=<다른 형식>` 으로 바꿔 본다.
-- 받은 시세는 로컬 DB(`source=KIS`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
+- 받은 시세는 로컬 DB(`source=KIS`, 모의투자는 `KIS_PAPER`)에만 쌓인다. 파일로 남길 때는 `local-data/` 에만 둔다(`.gitignore`).
 
 ## KIS 연결 확인 (curl)
 

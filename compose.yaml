@@ -1,7 +1,8 @@
 # 로컬 개발용. 계정과 키는 .env 에서 읽는다(값이 없으면 시작하지 않는다). 이미지에는 넣지 않는다.
 #   docker compose up -d                      PostgreSQL 만 (앱은 ./gradlew 로 띄울 때)
-#   docker compose --profile app up -d --build                 PostgreSQL + collector + risk (기본: KIS 모의투자)
+#   docker compose --profile app up -d --build                 PostgreSQL + collector + risk (기본: KIS 실전 시세. 주문 코드는 없다)
 #   docker compose --profile app --profile sim up -d --build   + 시뮬레이터 (.env 에 COLLECTOR_PROFILE=default, RISK_SOURCE=SIMULATOR)
+#   모의투자로 띄울 때는 .env 에 COLLECTOR_PROFILE=kis-paper, RISK_SOURCE=KIS_PAPER
 # 앱 포트는 이 PC(127.0.0.1)에만 연다. gradlew 로 띄운 collector·risk 와 같이 쓰면 포트가 겹친다.
 services:
   postgres:
@@ -31,7 +32,8 @@ services:
     environment:
       TZ: Asia/Seoul
 
-  # 시작할 때 Flyway 마이그레이션을 적용하고 수집한다. 기본은 KIS 모의투자(kis-paper), 실전은 kis, 시뮬레이터는 default
+  # 시작할 때 Flyway 마이그레이션을 적용하고 수집한다. 기본은 KIS 실전(kis), 모의투자는 kis-paper, 시뮬레이터는 default
+  # 거래일 주간장 마감 뒤에는 KIS 일봉도 받는다(kis·kis-paper 프로필, collector.daily-close)
   collector:
     profiles: [app]
     build:
@@ -43,16 +45,20 @@ services:
         condition: service_healthy
     environment:
       TZ: Asia/Seoul
-      SPRING_PROFILES_ACTIVE: ${COLLECTOR_PROFILE:-kis-paper}
+      SPRING_PROFILES_ACTIVE: ${COLLECTOR_PROFILE:-kis}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/futures_risk_ops
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       SIMULATOR_HOST: simulator
-      # 프로필이 쓰는 쌍만 읽는다(kis: KIS_APP_*, kis-paper: KIS_PAPER_APP_*). 시뮬레이터는 읽지 않는다
+      # 프로필이 쓰는 쌍만 읽는다(kis: KIS_APP_*, kis-paper: KIS_PAPER_APP_*). 시뮬레이터는 읽지 않는다. 계좌번호는 읽지 않는다
       KIS_APP_KEY: ${KIS_APP_KEY:-}
       KIS_APP_SECRET: ${KIS_APP_SECRET:-}
       KIS_PAPER_APP_KEY: ${KIS_PAPER_APP_KEY:-}
       KIS_PAPER_APP_SECRET: ${KIS_PAPER_APP_SECRET:-}
+      # 일봉 첫 실호출 확인용(docs/kis-daily-bar.md). 비우면 기본값: 시작 직후 실행 안 함, 시장 코드 F 만, 최근 5영업일
+      COLLECTOR_DAILYCLOSE_RUNONSTART: ${DAILY_CLOSE_RUN_ON_START:-false}
+      COLLECTOR_DAILYCLOSE_MARKETS: ${DAILY_CLOSE_MARKETS:-F}
+      COLLECTOR_DAILYCLOSE_LOOKBACKDAYS: ${DAILY_CLOSE_LOOKBACK_DAYS:-5}
     ports:
       - "127.0.0.1:8081:8081"
     healthcheck:
@@ -77,7 +83,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/futures_risk_ops
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      RISK_SOURCE: ${RISK_SOURCE:-KIS_PAPER}
+      RISK_SOURCE: ${RISK_SOURCE:-KIS}
     ports:
       - "127.0.0.1:8082:8082"
     healthcheck:

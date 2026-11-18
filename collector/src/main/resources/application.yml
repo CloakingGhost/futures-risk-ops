@@ -66,8 +66,22 @@ collector:
     # 환경변수 '이름'이다(값이 아니다). 실전은 이 이름을 쓰고, 모의투자 프로필은 KIS_PAPER_* 로 바꾼다.
     app-key-env: KIS_APP_KEY
     app-secret-env: KIS_APP_SECRET
-    # 접속키 유효기간(가정: 24시간, 공식 문서로 확인하지 못함). 지표 collector_token_expiry_timestamp_seconds 계산에만 쓴다
+    # 접속키 유효기간 24시간(KIS 공식 문서, 2026-11-17 확인). 접속키는 연결할 때 한 번만 쓰므로 연결 중 만료는 문제가 아니다.
+    # 지표 collector_token_expiry_timestamp_seconds 계산에만 쓴다
     key-ttl: 24h
+  # KIS 일봉(FHKIF03020100)을 받아 daily_bar 에 upsert 한다. 시뮬레이터에는 REST 가 없어서 기본은 끄고, KIS 프로필이 켠다.
+  # 실행 시각은 max(run-at, 주간장 마감 + after-close) 이고 거래일에만 돈다. 마감 시각은 세션 캘린더가 정한다.
+  daily-close:
+    enabled: false
+    run-at: "16:00"
+    # 가정: 마감 15분 뒤면 KIS 일봉이 확정돼 있다(첫 실호출로 확인)
+    after-close: 15m
+    # 오늘을 포함한 최근 영업일 수(1~100). 며칠 빠져도 다음 실행이 메운다
+    lookback-days: 5
+    # F 주간(지수선물), CM 야간선물. 기본은 F 만(CM 은 첫 실호출로 되는 것을 확인한 뒤 [F, CM] 으로). 하나라도 실패하면 그 실행은 성공으로 세지 않는다
+    markets: [F]
+    # true 면 시작 직후 한 번 받는다(첫 실호출 확인, 며칠 꺼 뒀을 때 보충). 장중이면 오늘은 빼고 직전 거래일까지만 받는다
+    run-on-start: false
   batch:
     queue-capacity: 100000
     max-size: 500

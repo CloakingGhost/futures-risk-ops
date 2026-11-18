@@ -3,8 +3,15 @@ package com.futuresriskops.collector;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.futuresriskops.collector.daily.DailyBarRepository;
+import com.futuresriskops.collector.daily.DailyBarSource;
+import com.futuresriskops.collector.daily.DailyCloseJob;
+import com.futuresriskops.collector.daily.DailyCloseProperties;
+import com.futuresriskops.collector.instrument.FuturesContracts;
 import com.futuresriskops.collector.instrument.InstrumentStore;
+import com.futuresriskops.collector.rest.DailyBar;
 import com.futuresriskops.collector.session.TestCalendars;
+import com.futuresriskops.collector.store.TickTrade;
 import com.futuresriskops.collector.ws.RealtimeClient;
 import com.futuresriskops.simulator.SimulatorServer;
 import com.futuresriskops.simulator.config.SimulatorConfig;
@@ -15,11 +22,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import okhttp3.OkHttpClient;
@@ -28,7 +37,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** 지표 9종이 Prometheus 출력에 나오고, 값이 기존 카운터(로그 ingest stats)와 같은지 시뮬레이터로 본다. DB 는 쓰지 않는다. */
+/** 지표 10종이 Prometheus 출력에 나오고, 값이 기존 카운터(로그 ingest stats)와 같은지 시뮬레이터로 본다. DB 는 쓰지 않는다. */
 class CollectorMetricsTest {
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -43,7 +52,8 @@ class CollectorMetricsTest {
             "collector_missing_volume_total",
             "collector_market_session_open",
             "collector_token_expiry_timestamp_seconds",
-            "collector_last_trade_received_timestamp_seconds");
+            "collector_last_trade_received_timestamp_seconds",
+            "collector_daily_close_last_success_timestamp_seconds");
 
     private final List<AutoCloseable> open = new ArrayList<>();
     private final PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
@@ -95,7 +105,7 @@ class CollectorMetricsTest {
     }
 
     @Test
-    void scrapeHasAllNineNamesAndTheValuesFollowTheExistingCounters() throws Exception {
+    void scrapeHasAllTenNamesAndTheValuesFollowTheExistingCounters() throws Exception {
         Clock clock = runningFrom("2026-11-02T10:00:00"); // 월요일 주간장
         SimulatorServer s = simulator(clock);
         AtomicLong quotes = new AtomicLong();
@@ -114,6 +124,7 @@ class CollectorMetricsTest {
         assertTrue(idle.contains("collector_ws_state{state=\"IDLE\"} 1"), idle);
         assertEquals(0, counter(CollectorMetrics.MESSAGES_RECEIVED, "kind", "trade", "tr_id", "H0MFCNT0"));
         assertEquals(0, gauge(CollectorMetrics.LAST_TRADE_RECEIVED));
+        assertEquals(0, gauge(CollectorMetrics.DAILY_CLOSE_LAST_SUCCESS), "daily close is off for the simulator");
 
         svc.start();
         await(() -> svc.writer().writtenCount() >= 50 && quotes.get() > 0, "trades and quotes written");
@@ -183,6 +194,40 @@ class CollectorMetricsTest {
         assertEquals(1, gauge(CollectorMetrics.MARKET_SESSION_OPEN), "night session");
         clock.set(kst("2026-12-25T10:00:00"));
         assertEquals(0, gauge(CollectorMetrics.MARKET_SESSION_OPEN), "holiday in the test calendar");
+    }
+
+    @Test
+    void dailyCloseGaugeIsZeroUntilARunSucceedsAndThenTheRunTime() {
+        Instant runAt = kst("2026-11-16T16:00:00");
+        IngestServiceTest.MutableClock clock = new IngestServiceTest.MutableClock(runAt);
+        IngestService svc = new IngestService(IngestServiceTest.props(1, false, Duration.ofSeconds(5)),
+                TestCalendars.fixed(), List::size, new OkHttpClient(), Map.of(), clock);
+        open.add(svc::stop);
+        AtomicBoolean kisDown = new AtomicBoolean(true);
+        DailyBarSource source = (market, symbol, from, to) -> {
+            if (kisDown.get()) {
+                throw new IllegalStateException("daily bar request failed with HTTP 500");
+            }
+            return List.of();
+        };
+        DailyBarRepository repo = new DailyBarRepository(null, s -> 1L) {
+            @Override
+            public int upsert(String symbol, String market, TickTrade.Source src, List<DailyBar> bars, Instant at) {
+                return bars.size();
+            }
+        };
+        DailyCloseJob job = new DailyCloseJob(source, repo, TestCalendars.fixed(), FuturesContracts::empty,
+                TickTrade.Source.KIS, clock, new DailyCloseProperties(true, LocalTime.of(16, 0), Duration.ofMinutes(15),
+                5, List.of("F"), false));
+        new CollectorMetrics(svc, job::lastSuccess).bindTo(registry);
+
+        assertEquals(0, gauge(CollectorMetrics.DAILY_CLOSE_LAST_SUCCESS), "never ran");
+        job.runOnce();
+        assertEquals(0, gauge(CollectorMetrics.DAILY_CLOSE_LAST_SUCCESS), "a failed run is not a success");
+        kisDown.set(false);
+        job.runOnce();
+        assertEquals(runAt.getEpochSecond(), gauge(CollectorMetrics.DAILY_CLOSE_LAST_SUCCESS), 1e-3);
+        assertTrue(registry.scrape().contains("collector_daily_close_last_success_timestamp_seconds"));
     }
 
     @Test

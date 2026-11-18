@@ -82,6 +82,21 @@ class MigrationFilesTest {
         assertFalse(sql.contains("not null"), "basis columns must stay nullable for rows before V6");
     }
 
+    @Test
+    void v7CreatesDailyBarKeyedBySourceAndWithoutOpenInterest() throws IOException {
+        String sql = read("V7__daily_bar.sql").toLowerCase();
+        assertTrue(sql.contains("create table daily_bar ("));
+        assertTrue(sql.contains("references instrument (id)"));
+        assertTrue(sql.contains("primary key (instrument_id, trade_date, market, source)"));
+        assertTrue(sql.contains("check (market in ('f', 'cm'))"));
+        assertTrue(sql.contains("check (source in ('kis', 'kis_paper', 'simulator', 'replay'))"));
+        for (String col : List.of("open_price", "high_price", "low_price", "close_price", "acc_volume",
+                "acc_trade_value", "mod_yn", "fetched_at")) {
+            assertTrue(sql.contains(col + " "), "missing column " + col);
+        }
+        assertFalse(sql.contains("open_interest "), "daily_bar must not carry open interest");
+    }
+
     private static int count(String text, String needle) {
         int n = 0;
         for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {

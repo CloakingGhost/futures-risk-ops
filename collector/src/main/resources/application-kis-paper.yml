@@ -12,6 +12,9 @@ collector:
   instruments:
     master:
       download: true
+  # 거래일 주간장 마감 뒤 KIS 일봉을 받는다. 문서상 일봉(FHKIF03020100)은 모의투자도 지원한다. 출처는 KIS_PAPER 로 적힌다
+  daily-close:
+    enabled: true
   # 야간장은 체결 간격이 길 수 있어 넉넉히 둔다(가정, 실체결을 보고 조정)
   stall-threshold: 60s
   ws-url: ws://ops.koreainvestment.com:31000/tryitout

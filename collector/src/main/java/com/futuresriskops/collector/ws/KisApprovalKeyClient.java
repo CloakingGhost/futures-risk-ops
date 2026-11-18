@@ -24,8 +24,9 @@ import org.slf4j.LoggerFactory;
  * 모의투자 {@code KIS_PAPER_APP_KEY}/{@code KIS_PAPER_APP_SECRET}), 로그·예외 메시지에 값을 넣지 않는다. 메시지에는 환경변수 이름만 쓴다.
  * 받은 접속키는 메모리에만 두고 프로세스가 살아 있는 동안 다시 쓴다.
  *
- * <p>만료 시각은 받은 시각 + {@code ttl} 로 계산한다. 접속키 유효기간은 공식 문서로 확인하지 못해
- * 24시간으로 가정한다(설정 {@code collector.approval.key-ttl}). 만료 {@link #REFRESH_BEFORE} 전부터는 접속할 때 새 키를 받는다.
+ * <p>만료 시각은 받은 시각 + {@code ttl} 로 계산한다. 접속키 유효기간 24시간은 KIS 공식 문서에 있다(2026-11-17 확인). 같은 문서가
+ * '접속키는 세션 연결 시 처음 한 번만 쓰므로 인증 뒤에는 새로 받지 않아도 연결이 이어진다'고 하므로, 이 만료는 연결 중 끊김과 상관없고
+ * 다음 접속 때만 의미가 있다(설정 {@code collector.approval.key-ttl}). 만료 {@link #REFRESH_BEFORE} 전부터는 접속할 때 새 키를 받는다.
  * 미리 받으려다 실패하면 아직 만료 전인 키를 그대로 쓰고 다음 접속 때 다시 받는다. 서버가 키를 거절하면
  * {@link #invalidate()} 로 버리고 다음 접속 때 새로 받는다.
  */
@@ -33,7 +34,7 @@ public final class KisApprovalKeyClient implements ApprovalKeyProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(KisApprovalKeyClient.class);
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
-    /** 접속키 유효기간(가정: 24시간, 공식 문서로 확인하지 못함). */
+    /** 접속키 유효기간 24시간(KIS 공식 문서, 2026-11-17 확인). 연결 중에는 쓰이지 않고 다음 접속 때만 의미가 있다. */
     public static final Duration DEFAULT_TTL = Duration.ofHours(24);
     /** 만료 이만큼 전부터는 접속할 때 새 키를 받는다. 장중에 만료 시각을 넘기지 않으려고 둔다. */
     public static final Duration REFRESH_BEFORE = Duration.ofHours(1);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.futuresriskops.collector.daily.DailyCloseProperties;
 import com.futuresriskops.collector.instrument.SubscriptionPlanner;
 import com.futuresriskops.collector.session.TestCalendars;
 import java.time.Clock;
@@ -110,6 +111,43 @@ class KisProfileConfigTest {
             assertNull(p.getProperty("server.address"), profile + " must not open the port to other machines");
             assertNull(p.getProperty("management.endpoints.web.exposure.include"), profile);
         }
+    }
+
+    private static DailyCloseProperties bindDaily(Properties... layers) {
+        Map<Object, Object> merged = new HashMap<>();
+        for (Properties l : layers) {
+            merged.putAll(l);
+        }
+        return new Binder(List.of(new MapConfigurationPropertySource(merged)), null,
+                ApplicationConversionService.getSharedInstance())
+                .bind("collector.daily-close", DailyCloseProperties.class).get();
+    }
+
+    /** compose.yaml 이 넘기는 환경변수 이름(COLLECTOR_DAILYCLOSE_*)이 실제로 설정에 묶이는지. 이름이 틀리면 조용히 무시되기 때문이다. */
+    @Test
+    void theEnvironmentVariablesComposePassesBindToTheDailyCloseSettings() {
+        var env = new org.springframework.core.env.SystemEnvironmentPropertySource("systemEnvironment", new HashMap<String, Object>(Map.of(
+                "COLLECTOR_DAILYCLOSE_RUNONSTART", "true", "COLLECTOR_DAILYCLOSE_MARKETS", "F,CM",
+                "COLLECTOR_DAILYCLOSE_LOOKBACKDAYS", "15")));
+        DailyCloseProperties p = new Binder(org.springframework.boot.context.properties.source.ConfigurationPropertySources.from(env))
+                .bind("collector.daily-close", DailyCloseProperties.class).get();
+        assertTrue(p.runOnStart());
+        assertEquals(List.of("F", "CM"), p.markets());
+        assertEquals(15, p.lookbackDays());
+    }
+
+    @Test
+    void dailyCloseIsOffForTheSimulatorAndOnForBothKisProfiles() {
+        DailyCloseProperties sim = bindDaily(load("application.yml"));
+        assertFalse(sim.enabled(), "the simulator has no REST API");
+        assertEquals(LocalTime.of(16, 0), sim.runAt());
+        assertEquals(Duration.ofMinutes(15), sim.afterClose());
+        assertEquals(5, sim.lookbackDays());
+        assertEquals(List.of("F"), sim.markets(), "CM is turned on only after the first real call shows it works");
+        assertFalse(sim.runOnStart());
+        assertTrue(bindDaily(load("application.yml"), load("application-kis.yml")).enabled());
+        assertFalse(bindDaily(load("application.yml"), load("application-kis.yml")).runOnStart(), "the first real call turns it on by hand");
+        assertTrue(bindDaily(load("application.yml"), load("application-kis-paper.yml")).enabled());
     }
 
     @Test
