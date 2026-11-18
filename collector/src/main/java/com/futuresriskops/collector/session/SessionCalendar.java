@@ -83,6 +83,11 @@ public final class SessionCalendar {
         if (!night.crossesMidnight()) {
             throw new IllegalArgumentException("night session must close on the next day: " + night);
         }
+        // classify 는 야간 마감 정각(1초)까지 야간으로 본다. 주간 개장이 그보다 이르면 개장 체결이 야간으로 분류된다.
+        if (!night.close().plusSeconds(1).isBefore(day.open())) {
+            throw new IllegalArgumentException("night session must close before the day session opens: night "
+                    + night + ", day " + day);
+        }
         this.zone = zone;
         this.day = day;
         this.night = night;
@@ -182,6 +187,12 @@ public final class SessionCalendar {
     /**
      * 체결 시각(KST)의 거래일과 세션. 시각만으로 정하므로 장 시간 밖 체결(시뮬레이터)에도 값이 나온다.
      * 세션은 평소 야간장 시각으로 나눈다(덮어쓰기는 반영하지 않는다).
+     *
+     * <p>야간 종가 단일가 체결은 마감 시각 정각(06:00:00)에 찍힌다(2026-11-18 실전 관찰). 세션 구간({@link Window#contains})은
+     * 마감을 포함하지 않지만 체결은 그 마감 체결이 속한 야간장으로 분류해야 한다. 마감 정각을 DAY 로 분류하면 거래일이
+     * 틀리고(금요일 야간이면 토요일 거래일), 같은 (거래일, 세션, 누적거래량) 을 가진 진짜 주간 체결이 중복으로 버려진다.
+     * 체결 시각은 초 단위(HHMMSS)라서 마감 정각의 1초 구간 전체를 야간에 넣는다. 주간 마감(15:45:00)은 구간 밖이 아니라
+     * 원래 DAY 로 분류되므로 손댈 것이 없다.
      */
     public Placement classify(ZonedDateTime tradedAt) {
         ZonedDateTime t = tradedAt.withZoneSameInstant(zone);
@@ -190,7 +201,7 @@ public final class SessionCalendar {
         if (!time.isBefore(night.open())) {
             return new Placement(t, tradeDate(TradingSession.NIGHT, date), TradingSession.NIGHT);
         }
-        if (time.isBefore(night.close())) {
+        if (time.isBefore(night.close().plusSeconds(1))) {
             return new Placement(t, tradeDate(TradingSession.NIGHT, date.minusDays(1)), TradingSession.NIGHT);
         }
         return new Placement(t, date, TradingSession.DAY);
