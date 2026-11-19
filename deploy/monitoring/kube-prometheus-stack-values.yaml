@@ -83,17 +83,43 @@ prometheus:
 
 # ---- Alertmanager ------------------------------------------------------------------------------
 # 켠다. 수신처는 없다(차트 기본 설정은 모든 알람을 'null' 수신처로 보낸다). 알람은 Alertmanager·Grafana 화면에서만 본다.
-# 외부 알림(Slack, 카카오톡)은 연결하지 않는다: 이 저장소에 웹훅 값이 없고 값을 쓰면 안 된다.
-# Alertmanager receiver 는 여기서 만들지 않는다. Slack 수신처는 메인이 Secret 이름이 확정되면 더한다.
+# 알람은 Slack 웹훅으로 보낸다(사용자 결정 2026-11-19). 웹훅 주소는 이 파일에 없다: 사용자가 `.env` 의 SLACK_ALERTS_WEBHOOKS 에 넣은 값을
+# Secret `alertmanager-slack`(키 webhook-url, monitoring 네임스페이스)으로 만들어 두고(deploy/monitoring/create-slack-secret.sh),
+# Alertmanager 가 그 Secret 을 파일로 마운트해 `api_url_file` 로 읽는다. 카카오톡은 연결하지 않는다.
+# 우리 알람 8개(margin-watch-rules 차트)만 Slack 으로 보낸다. 스택 기본 규칙(Watchdog 등)은 보내지 않는다(Watchdog 은 늘 울리는 '파이프라인 확인용' 알람).
 alertmanager:
   enabled: true
   alertmanagerSpec:
+    # 마운트 위치: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+    secrets:
+      - alertmanager-slack
     resources:
       requests:
         cpu: 10m
         memory: 32Mi
       limits:
         memory: 128Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace, job]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: slack
+          matchers:
+            - alertname =~ "CollectorNoTradeInSession|CollectorIngestLatencyP95High|CollectorReconnectsFrequent|CollectorMissingVolume|NodeDiskUsageHigh|DbConnectionsHigh|PodRestartingRepeatedly|CollectorDailyCloseStale"
+    receivers:
+      - name: "null"
+      - name: slack
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+            send_resolved: true
+            title: '{{ if eq .Status "firing" }}[{{ .CommonLabels.severity }}]{{ else }}[해소]{{ end }} {{ .CommonLabels.alertname }}'
+            text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\n" }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'
 
 # ---- Grafana -----------------------------------------------------------------------------------
 grafana:
