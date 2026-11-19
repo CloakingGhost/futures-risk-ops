@@ -107,12 +107,14 @@ grafana:
     passwordKey: admin-password
   service:
     type: ClusterIP
+  # 메모리: 처음에 limits 256Mi 로 설치했더니 시작 단계에서 OOMKilled(종료 코드 137) 로 CrashLoopBackOff 였다(2026-11-19 설치 때 관찰).
+  # 이 Grafana 버전은 시작할 때 API 서버를 올리느라 한도를 넘긴다. 768Mi 로 올리고, 평소 사용량은 `kubectl top pod -n monitoring` 으로 보고 조정한다.
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
-    limits:
       memory: 256Mi
+    limits:
+      memory: 768Mi
   # 대시보드는 ConfigMap 으로 올리고 sidecar 가 읽어 간다(Grafana 화면에서 고친 것은 저장되지 않는다. JSON 이 원본이다).
   # 규칙은 sidecar 가 아니라 Prometheus Operator 가 PrometheusRule 을 읽어 간다(위 ruleSelectorNilUsesHelmValues 참고).
   # Grafana 의 sidecar.alerts 는 Grafana 자체 알람용이라 쓰지 않는다.
