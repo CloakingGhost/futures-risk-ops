@@ -30,7 +30,7 @@
       "description": "jvm_memory_used_bytes{area=heap} 합. 컨테이너 한도(512Mi, MaxRAMPercentage=75)에 가까워지면 위험하다. risk 는 /actuator/prometheus 가 열려 ServiceMonitor 가 켜진 뒤에야 나온다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -42,7 +42,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (job) (jvm_memory_used_bytes{job=~\"collector|risk\", area=\"heap\"})",
           "legendFormat": "{{job}}",
@@ -95,7 +95,7 @@
       "description": "jvm_gc_pause_seconds_sum 의 5분 평균 증가 속도 = 전체 시간 중 GC 로 멈춰 있던 비율. 계속 수 % 를 넘으면 힙이 모자란 것이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -107,7 +107,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (job) (rate(jvm_gc_pause_seconds_sum{job=~\"collector|risk\"}[5m]))",
           "legendFormat": "{{job}}",
@@ -161,7 +161,7 @@
       "description": "hikaricp_connections_active / hikaricp_connections_max. 80% 를 넘고 5분 이어지면 알람(DbConnectionsHigh). 배치 INSERT 때 잠깐 오르는 것은 정상이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -173,7 +173,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (job, pool) (hikaricp_connections_active{job=~\"collector|risk\"}) / sum by (job, pool) (hikaricp_connections_max{job=~\"collector|risk\"})",
           "legendFormat": "{{job}} {{pool}}",
@@ -234,7 +234,7 @@
       "description": "hikaricp_connections_pending: 연결을 얻으려고 기다리는 스레드 수. 0 이 아닌 값이 이어지면 풀이 모자란 것이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -246,7 +246,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (job, pool) (hikaricp_connections_pending{job=~\"collector|risk\"})",
           "legendFormat": "{{job}} {{pool}}",
@@ -300,7 +300,7 @@
       "description": "container_memory_working_set_bytes (margin-watch 네임스페이스). 한도에 닿으면 OOM 으로 재시작한다. 파드 이름 기준이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -312,7 +312,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (pod, container) (container_memory_working_set_bytes{namespace=\"margin-watch\", container!=\"\", container!=\"POD\"})",
           "legendFormat": "{{pod}} / {{container}}",
@@ -365,7 +365,7 @@
       "description": "container_cpu_usage_seconds_total 의 5분 평균 증가 속도(코어 수). margin-watch 네임스페이스 파드별이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -377,7 +377,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (pod, container) (rate(container_cpu_usage_seconds_total{namespace=\"margin-watch\", container!=\"\", container!=\"POD\"}[5m]))",
           "legendFormat": "{{pod}} / {{container}}",
@@ -431,7 +431,7 @@
       "description": "kube_pod_container_status_restarts_total (margin-watch 네임스페이스) 의 현재 누적값. 30분에 3회 이상 늘면 알람(PodRestartingRepeatedly). 한 번도 재시작하지 않은 파드는 0 이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -443,7 +443,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (pod, container) (kube_pod_container_status_restarts_total{namespace=\"margin-watch\"})",
           "legendFormat": "{{pod}} / {{container}}",
@@ -500,7 +500,7 @@
       "description": "kube_pod_container_status_restarts_total 의 30분 증가량. 3 이상이 알람 기준이다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -512,7 +512,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=\"margin-watch\"}[30m]))",
           "legendFormat": "{{pod}} / {{container}}",

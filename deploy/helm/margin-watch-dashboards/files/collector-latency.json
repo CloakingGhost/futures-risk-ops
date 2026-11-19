@@ -30,7 +30,7 @@
       "description": "체결 시각(bsop_hour)에서 수신까지. 한계: bsop_hour 가 초 단위라 지연이 0~1초 부풀려진다(칸 경계 0.5초 아래는 의미가 없다). 수신은 PC 시계, 체결은 KIS 시계라서 PC 시계가 늦으면 음수가 0 으로 세어져 지연이 실제보다 작게 보인다. 칸 안 보간 추정치다. 체결이 없는 시간(장외)에는 비어 있다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -42,7 +42,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.5, sum by (le) (rate(collector_trade_to_receive_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p50",
@@ -52,7 +52,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(collector_trade_to_receive_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p95",
@@ -62,7 +62,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(collector_trade_to_receive_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p99",
@@ -115,7 +115,7 @@
       "description": "수신에서 tick_trade 배치 INSERT 가 끝날 때까지. 체결만 잰다(호가 제외). 배치 대기가 들어 있어서 체결이 뜸할 때 최대 약 0.2초(flush-interval-ms=200)가 더해진다. p95 가 1초를 넘고 5분 이어지면 알람(CollectorIngestLatencyP95High). 칸 안 보간 추정치다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -127,7 +127,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.5, sum by (le) (rate(collector_receive_to_commit_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p50",
@@ -137,7 +137,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(collector_receive_to_commit_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p95",
@@ -147,7 +147,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(collector_receive_to_commit_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p99",
@@ -206,7 +206,7 @@
       "description": "최근 5분 체결→수신 p95. 0~1초 부풀려지는 값이라(초 단위 체결 시각) 1~2초는 정상 범위로 본다. PC 시계가 늦으면 0 에 가깝게 나온다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -218,7 +218,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(collector_trade_to_receive_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p95",
@@ -275,7 +275,7 @@
       "description": "최근 5분 수신→커밋 p95. 기준 1초(알람 CollectorIngestLatencyP95High).",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 6,
@@ -287,7 +287,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(collector_receive_to_commit_seconds_bucket{job=\"collector\"}[5m])))",
           "legendFormat": "p95",
@@ -340,7 +340,7 @@
       "description": "수신→커밋 히스토그램의 건수(_count)로 센 초당 체결 적재 속도(1분 평균). 중복으로 버려진 체결도 그 배치에 들었으면 센다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -352,7 +352,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(collector_receive_to_commit_seconds_count{job=\"collector\"}[1m]))",
           "legendFormat": "체결/초",
@@ -401,7 +401,7 @@
       "description": "최근 5분 동안 체결→수신 히스토그램에 들어온 체결 수. 0 이면 위 지연 패널은 비어 있는 것이 맞다(체결이 없었다).",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 18,
@@ -413,7 +413,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum(increase(collector_trade_to_receive_seconds_count{job=\"collector\"}[5m]))",
           "legendFormat": "건수",
@@ -462,7 +462,7 @@
       "description": "각 히스토그램의 _sum / _count 로 구한 5분 평균. 체결→수신 평균이 계속 0 에 가까우면 지연이 없는 것이 아니라 PC 시계가 늦을 수 있다. Windows 시간 동기화를 먼저 확인한다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 0,
@@ -474,7 +474,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(collector_trade_to_receive_seconds_sum{job=\"collector\"}[5m])) / sum(rate(collector_trade_to_receive_seconds_count{job=\"collector\"}[5m]))",
           "legendFormat": "체결→수신",
@@ -484,7 +484,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum(rate(collector_receive_to_commit_seconds_sum{job=\"collector\"}[5m])) / sum(rate(collector_receive_to_commit_seconds_count{job=\"collector\"}[5m]))",
           "legendFormat": "수신→커밋",
@@ -537,7 +537,7 @@
       "description": "Micrometer 가 내보내는 최근 구간 최댓값 게이지. 평균·백분위에 드러나지 않는 튀는 값을 본다.",
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "gridPos": {
         "x": 12,
@@ -549,7 +549,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "max(collector_trade_to_receive_seconds_max{job=\"collector\"})",
           "legendFormat": "체결→수신 max",
@@ -559,7 +559,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "max(collector_receive_to_commit_seconds_max{job=\"collector\"})",
           "legendFormat": "수신→커밋 max",
