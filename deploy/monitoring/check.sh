@@ -9,6 +9,7 @@
 #   규칙      promtool check rules, promtool test rules(합성 시계열 단위 시험), 규칙 차트 helm lint·template(알람 8개)
 #   수집      collector·risk 차트의 ServiceMonitor: 기본값에서는 안 나오고, 켜고 CRD 가 있을 때만 나온다(포트·경로 확인)
 #   비밀      스택 values 에 비밀번호·웹훅 같은 값이 없다(Grafana 는 Secret 이름만)
+#   Slack     create-slack-secret.sh 시험(가짜 kubectl, 합성값): 값이 출력·인자에 안 나오고, 형식이 틀리면 실패, 임시 파일이 안 남는다
 #   기존      deploy/helm/check.sh 가 그대로 통과한다
 # Docker 가 없거나 꺼져 있으면 이유를 알리고 실패한다(promtool 을 Docker 로 돌리므로).
 set -euo pipefail
@@ -42,6 +43,9 @@ promtool() {
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+echo "== create-slack-secret.sh test (fake kubectl, synthetic values)"
+bash deploy/monitoring/test-create-slack-secret.sh
 
 echo "== promtool check rules"
 promtool check rules "$RULES"
