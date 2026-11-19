@@ -84,6 +84,7 @@ prometheus:
 # ---- Alertmanager ------------------------------------------------------------------------------
 # 켠다. 수신처는 없다(차트 기본 설정은 모든 알람을 'null' 수신처로 보낸다). 알람은 Alertmanager·Grafana 화면에서만 본다.
 # 외부 알림(Slack, 카카오톡)은 연결하지 않는다: 이 저장소에 웹훅 값이 없고 값을 쓰면 안 된다.
+# Alertmanager receiver 는 여기서 만들지 않는다. Slack 수신처는 메인이 Secret 이름이 확정되면 더한다.
 alertmanager:
   enabled: true
   alertmanagerSpec:
