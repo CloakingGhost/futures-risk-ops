@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres
+description: collector·risk 가 쓰는 PostgreSQL. StatefulSet 하나와 PVC 만 둔다(replicas 1 고정). Flyway 는 collector 가 시작할 때 실행하므로 이 차트에 없다.
+type: application
+version: 0.1.0
+appVersion: "16"

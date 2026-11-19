@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  # 리소스 이름을 릴리스 이름과 상관없이 postgres 로 고정한 것은 의도다(collector 차트와 같다). 두 번째 DB 를 설치하려 하면 이름이 겹쳐 거절된다.
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: margin-watch
+spec:
+  # 값이 아니다. 복제 설정이 없는 DB 를 둘 띄우면 각자 빈 데이터 폴더로 시작해 서로 다른 DB 가 된다.
+  # check.sh 가 렌더링 결과에서 이 값을 확인한다.
+  replicas: 1
+  serviceName: postgres
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: margin-watch
+    spec:
+      # 0 으로 두지 않는다(쿠버네티스 문서: StatefulSet 은 0 을 쓰지 않는다). 파드를 지우면 종료 신호가 가고 60초 안에 끝나지 않으면 SIGKILL 이다.
+      # postgres 가 정리하고 즉시 끝나는지, 유예 시간을 다 쓰는지는 리허설에서 관찰한다(가정: 즉시 종료).
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            # TZ 를 두지 않는다. compose 의 DB 와 같게 UTC 로 시작한다(TZ 가 있으면 initdb 가 DB 시간대를 그 값으로 정한다).
+            - name: POSTGRES_DB
+              value: futures_risk_ops
+            # 계정은 Secret 에서만 읽는다. 차트에는 Secret 이름만 있고 값은 없다.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: POSTGRES_PASSWORD
+            # 볼륨 마운트 위치에 바로 데이터 폴더를 만들지 않고 하위 폴더를 쓴다. 파일시스템이 만든 lost+found 같은 항목이
+            # 마운트 폴더에 있으면 initdb 가 그 폴더를 쓰지 못하는 문제를 피한다.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          # 시작할 때 빈 데이터 폴더면 초기화가 있어 느릴 수 있다. startupProbe 가 통과할 때까지 아래 둘은 시작하지 않는다.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d futures_risk_ops"]
+            periodSeconds: 5
+            failureThreshold: 36
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d futures_risk_ops"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d futures_risk_ops"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+  # 파드가 지워져도 PVC(data-postgres-0)는 남는다. 단 local-path 의 reclaim 정책이 Delete 라서 PVC 를 지우면 데이터도 사라진다.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: postgres
+          app.kubernetes.io/instance: {{ .Release.Name }}
+          app.kubernetes.io/part-of: margin-watch
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}

@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "postgres values",
+  "description": "additionalProperties:false 라서 replicas, replicaCount, password, user 같은 키는 거절된다. DB 는 한 번에 하나만 띄우고 계정 값은 Secret 이름으로만 받는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "secretName", "storage"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Never", "IfNotPresent", "Always"] }
+      }
+    },
+    "secretName": { "type": "string", "minLength": 1 },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "storageClassName"],
+      "properties": {
+        "size": { "type": "string", "pattern": "^[0-9]+(Mi|Gi|Ti)$" },
+        "storageClassName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    }
+  }
+}
