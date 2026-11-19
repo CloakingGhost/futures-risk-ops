@@ -1,8 +1,10 @@
 package com.futuresriskops.risk.api;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -10,6 +12,7 @@ import com.futuresriskops.risk.market.PostgresTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -28,6 +31,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(properties = "risk.source=KIS_PAPER")
 @AutoConfigureMockMvc
+// @SpringBootTest 는 기본으로 지표 내보내기를 끈다. /actuator/prometheus 를 확인하려고 켠다.
+@AutoConfigureObservability
 class RiskApiTest {
 
     @Container
@@ -178,5 +183,27 @@ class RiskApiTest {
     void livenessAndReadinessProbesAreOpen() throws Exception {
         mvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
         mvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    /**
+     * Day 9: risk 도 /actuator/prometheus 를 연다. 스프링 자동 지표(JVM, DB 연결 풀, HTTP)만 나오고 이름은 고정 대상이 아니다.
+     * 다른 actuator 엔드포인트(env 등)는 열지 않는다.
+     */
+    @Test
+    void prometheusExposesSpringAutoMetricsAndNothingElseIsOpen() throws Exception {
+        // http_server_requests_* 는 요청이 한 번은 있어야 나온다
+        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+
+        mvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("jvm_memory_used_bytes")))
+                .andExpect(content().string(containsString("hikaricp_connections_active")))
+                .andExpect(content().string(containsString("hikaricp_connections_max")))
+                .andExpect(content().string(containsString("http_server_requests_seconds")));
+
+        mvc.perform(get("/actuator/env")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/beans")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/heapdump")).andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/metrics")).andExpect(status().isNotFound());
     }
 }

@@ -15,11 +15,12 @@ server:
   address: 127.0.0.1
   port: 8082
 
+# 상태(/actuator/health)와 지표(/actuator/prometheus)만 연다. env, beans, heapdump 등은 열지 않는다.
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       # /actuator/health/liveness·readiness. 쿠버네티스 probe 가 쓴다(Helm 차트). 스프링은 쿠버네티스 안에서만 자동으로 켜서,
