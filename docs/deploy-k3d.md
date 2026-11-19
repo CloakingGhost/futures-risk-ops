@@ -22,15 +22,15 @@ k3d 클러스터(`k3d-margin-watch`)에 postgres, collector, risk 를 올리는 
 ### 1. 이미지 다시 빌드하고 클러스터에 넣기
 
 ```bash
-docker compose -p futures-risk-ops --env-file <원 저장소 경로>/.env --profile app build   # 미확인
+docker compose -p futures-risk-ops --env-file <원 저장소 경로>/.env --profile app build   # 확인함(2026-11-19)
 ./deploy/k3d/up.sh --import                                                                # 확인함(2026-11-16, Day 7)
-docker exec k3d-margin-watch-server-0 crictl images | grep futures-risk-ops                # 미확인
+docker exec k3d-margin-watch-server-0 crictl images | grep futures-risk-ops                # 확인함(2026-11-19)
 ```
 
 - 빌드는 실행 중인 컨테이너를 다시 만들지 않는다. 이미지만 새로 만든다.
 - `up.sh --import` 는 `futures-risk-ops-collector:local`, `futures-risk-ops-risk:local` 을 `k3d image import` 로 노드에 넣는다. 클러스터가 이미 있으면 그대로 두고 이미지만 넣는다.
-- **확인**: 노드 안 이미지가 방금 빌드한 것인지 본다. 이미지 ID(앞 12자리)를 `docker images` 와 `crictl images` 에서 비교하는 것이 가장 쉽다. ID 가 형식이 달라 비교가 어려우면 `docker image inspect futures-risk-ops-collector:local --format '{{.RootFS.Layers}}'` 의 마지막 레이어 해시를 `crictl inspecti` 결과와 맞춘다(미확인).
-- 이미 collector·risk 파드가 떠 있다면 이미지를 넣은 뒤 `kubectl --context k3d-margin-watch -n margin-watch rollout restart deploy/risk` 처럼 다시 띄워야 새 이미지가 쓰인다(미확인). collector 는 5단계의 순서와 시간 제약을 지킨다.
+- **확인**: 노드 안 이미지가 방금 빌드한 것인지 본다. **이미지 ID 는 비교하지 않는다**: `docker images` 의 ID 는 이미지 인덱스 해시이고 `crictl images` 의 ID 는 구성 해시라 같은 이미지여도 값이 다르다(2026-11-19 확인). 대신 `docker image inspect futures-risk-ops-collector:local --format '{{range .RootFS.Layers}}{{.}} {{end}}'` 의 마지막 레이어 해시가 `crictl inspecti futures-risk-ops-collector:local` 출력에도 있는지 본다(확인함 2026-11-19, collector·risk 모두 일치).
+- 이미 collector·risk 파드가 떠 있다면 이미지를 넣은 뒤 `kubectl --context k3d-margin-watch -n margin-watch rollout restart deploy/risk` 처럼 다시 띄워야 새 이미지가 쓰인다(전환 때는 파드가 없어서 이 경우를 돌려 보지 못했다: 미확인). collector 는 5단계의 순서와 시간 제약을 지킨다.
 
 ### 2. Secret 만들기
 
@@ -47,7 +47,7 @@ docker exec k3d-margin-watch-server-0 crictl images | grep futures-risk-ops     
 ### 3. postgres 설치
 
 ```bash
-helm install postgres deploy/helm/postgres --kube-context k3d-margin-watch -n margin-watch --create-namespace   # 미확인(이 문서를 쓰는 세션은 실행하지 않았다. 2026-11-19 리허설은 rehearsal 네임스페이스에서 같은 차트로 확인)
+helm install postgres deploy/helm/postgres --kube-context k3d-margin-watch -n margin-watch --create-namespace   # 확인함(2026-11-19, 실제로는 create-secrets.sh 가 네임스페이스를 먼저 만들어 둔 상태에서 설치)
 kubectl --context k3d-margin-watch -n margin-watch rollout status statefulset/postgres
 kubectl --context k3d-margin-watch -n margin-watch get pods,pvc
 ```
@@ -72,8 +72,8 @@ kubectl --context k3d-margin-watch -n margin-watch exec postgres-0 -- sh -c 'psq
 ### 4. 옛 collector·risk(compose)를 먼저 끈다
 
 ```bash
-docker compose -p futures-risk-ops --env-file <원 저장소 경로>/.env --profile app stop collector risk   # 미확인
-docker ps                                                                                                  # 미확인
+docker compose -p futures-risk-ops --env-file <원 저장소 경로>/.env --profile app stop collector risk   # 확인함(2026-11-19)
+docker ps                                                                                                  # 확인함(2026-11-19)
 ```
 
 - **확인**: `docker ps` 에 collector, risk 컨테이너가 없다. 있으면 5단계로 가지 않는다.
@@ -86,10 +86,10 @@ docker ps                                                                       
 # 첫 기동: 일봉을 15일치 채운다
 helm install collector deploy/helm/collector --kube-context k3d-margin-watch -n margin-watch \
   --set-file sessionCalendar=config/session-calendar.yaml \
-  --set dailyClose.runOnStart=true --set dailyClose.lookbackDays=15                                  # 미확인
+  --set dailyClose.runOnStart=true --set dailyClose.lookbackDays=15                                  # 확인함(2026-11-19)
 
-kubectl --context k3d-margin-watch -n margin-watch rollout status deploy/collector                  # 미확인
-kubectl --context k3d-margin-watch -n margin-watch logs deploy/collector | grep -i flyway           # 미확인
+kubectl --context k3d-margin-watch -n margin-watch rollout status deploy/collector                  # 확인함(2026-11-19)
+kubectl --context k3d-margin-watch -n margin-watch logs deploy/collector | grep -i flyway           # 확인함(2026-11-19)
 
 # 일봉이 채워진 것을 확인한 뒤 평소 값으로 돌린다. 파드가 다시 뜬다(Recreate)
 helm upgrade collector deploy/helm/collector --kube-context k3d-margin-watch -n margin-watch \
@@ -105,9 +105,9 @@ helm upgrade collector deploy/helm/collector --kube-context k3d-margin-watch -n 
 ### 6. risk 설치
 
 ```bash
-helm install risk deploy/helm/risk --kube-context k3d-margin-watch -n margin-watch                  # 미확인
-kubectl --context k3d-margin-watch -n margin-watch rollout status deploy/risk                       # 미확인
-kubectl --context k3d-margin-watch -n margin-watch port-forward svc/risk 8082:8082                  # 미확인
+helm install risk deploy/helm/risk --kube-context k3d-margin-watch -n margin-watch                  # 확인함(2026-11-19)
+kubectl --context k3d-margin-watch -n margin-watch rollout status deploy/risk                       # 확인함(2026-11-19)
+kubectl --context k3d-margin-watch -n margin-watch port-forward svc/risk 8082:8082                  # 확인함(2026-11-19)
 ```
 
 - 포트 포워딩은 그 터미널이 열려 있는 동안만 유지된다. 다른 터미널에서 `curl http://127.0.0.1:8082/actuator/health` 가 `UP` 이면 된다. 체결이 아직 없으면 계산 API 는 빈 값을 낸다. 포트 8082 를 compose risk 가 쓰고 있으면 4단계에서 끄지 않은 것이다.
@@ -116,9 +116,9 @@ kubectl --context k3d-margin-watch -n margin-watch port-forward svc/risk 8082:80
 ### 7. 확인
 
 ```bash
-kubectl --context k3d-margin-watch -n margin-watch get pods                         # 미확인(RESTARTS 0, READY 1/1)
-kubectl --context k3d-margin-watch -n margin-watch top pod                          # 미확인(metrics-server 필요)
-kubectl --context k3d-margin-watch -n margin-watch logs deploy/collector --tail=50  # 미확인
+kubectl --context k3d-margin-watch -n margin-watch get pods                         # 확인함(2026-11-19)(RESTARTS 0, READY 1/1)
+kubectl --context k3d-margin-watch -n margin-watch top pod                          # 확인함(2026-11-19)(metrics-server 필요)
+kubectl --context k3d-margin-watch -n margin-watch logs deploy/collector --tail=50  # 확인함(2026-11-19)
 ```
 
 - 재시작이 0 이고 `OOMKilled` 가 없다. 메모리는 collector, risk 256Mi/512Mi, postgres 256Mi/1Gi 로 시작해 `top pod` 와 재시작 횟수를 보고 조정한다. 값은 운영 일지에 적는다.
@@ -131,8 +131,8 @@ kubectl --context k3d-margin-watch -n margin-watch logs deploy/collector --tail=
 
 ```bash
 kubectl --context k3d-margin-watch -n margin-watch describe pod <파드 이름>             # 미확인: 마지막 상태, 종료 이유(OOMKilled 등), probe 실패
-kubectl --context k3d-margin-watch -n margin-watch logs <파드 이름>                     # 미확인: 지금 컨테이너
-kubectl --context k3d-margin-watch -n margin-watch logs <파드 이름> --previous          # 미확인: 재시작 전 컨테이너(재시작이 있을 때)
+kubectl --context k3d-margin-watch -n margin-watch logs <파드 이름>                     # 확인함(2026-11-19): 지금 컨테이너
+kubectl --context k3d-margin-watch -n margin-watch logs <파드 이름> --previous          # 확인함(2026-11-19): 재시작 전 컨테이너(재시작이 있을 때)
 kubectl --context k3d-margin-watch -n margin-watch get events --sort-by=.lastTimestamp  # 미확인: 이미지 없음, 스케줄 실패, 마운트 실패
 ```
 
