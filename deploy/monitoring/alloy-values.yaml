@@ -1,0 +1,134 @@
+# Grafana Alloy 값(Day 9, 맨 마지막 단계). margin-watch 네임스페이스의 파드 로그를 읽어 Loki 로 보내는 수집기다.
+#
+# 차트: grafana/alloy 1.15.0 (앱 v1.21.3)
+#   고른 이유: 2026-10-29 에 나온 버전이다. 작업일(2026-11-19)에서 2주(11-05) 이상 지난 것 중 가장 새것이다.
+#   뒤에 나온 1.16.0(2026-11-13)은 아직 2주가 안 됐다. 날짜는 차트 저장소 index.yaml 의 created 값이다.
+#   차트를 올릴 때는 `helm show values grafana/alloy --version <새 버전>` 으로 이 파일의 키 이름이 그대로인지 먼저 본다.
+#   이 버전 값으로 확인한 키: alloy.configMap.content, alloy.resources, alloy.enableReporting, alloy.mounts, controller.type,
+#   rbac.create·namespaces·rules·clusterRules, crds.create, configReloader, service.enabled.
+#
+# 설치(운영 작업. 이 저장소의 검사 스크립트 deploy/monitoring/check-logging.sh 는 클러스터를 건드리지 않는다):
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   (Loki 를 먼저 설치한다: deploy/monitoring/loki-values.yaml. 네임스페이스 margin-watch, monitoring 은 이미 있어야 한다)
+#   helm install alloy grafana/alloy --version 1.15.0 -n monitoring -f deploy/monitoring/alloy-values.yaml
+#
+# 수집 대상은 네임스페이스 margin-watch 의 파드(collector, risk, postgres)뿐이다. monitoring·kube-system 등 다른 네임스페이스 로그는 읽지 않는다(메모리 아낌).
+# 로그는 파드 파일(/var/log/pods)이 아니라 쿠버네티스 API(pods/log)로 읽는다(loki.source.kubernetes). 그래서 노드 디렉터리를 마운트하지 않고 root 도 필요 없다.
+# 바깥으로 열지 않는다: 서비스를 만들지 않고, Loki 로 보낼 때 인증도 쓰지 않는다(클러스터 안 통신만). 이 파일에 비밀 값은 없다(절대 규칙 2).
+# 로그 내용은 저장소에 복사하지 않는다(절대 규칙 3). 이 파일은 로그를 가공하지 않고 라벨만 붙인다.
+
+controller:
+  # 노드마다 하나. 노드가 하나(k3d 서버 1, 에이전트 0)라서 파드는 1개다.
+  type: daemonset
+
+alloy:
+  # 메모리: 요청 64Mi, 한도 192Mi(카드 기준 128~256Mi 안). 파드 3개의 로그만 읽는 작은 구성이라 한도를 낮게 잡았다.
+  # 값은 추정이다: 설치 뒤 `kubectl top pod -n monitoring` 으로 보고 조정한다. 한도를 넘으면 OOMKilled 로 재시작하고 읽던 위치부터 다시 읽는다.
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 192Mi
+  # 사용 통계를 grafana.com 으로 보내지 않는다(셀프 호스팅, 바깥으로 보내는 것 없음)
+  enableReporting: false
+  # 노드의 /var/log, /var/lib/docker/containers 를 마운트하지 않는다(위 설명: 쿠버네티스 API 로 읽는다). 기본값이 false 라서 명시만 한다.
+  mounts:
+    varlog: false
+    dockercontainers: false
+  configMap:
+    create: true
+    content: |
+      // ① margin-watch 네임스페이스의 파드를 찾는다. namespaces 를 걸어 두면 다른 네임스페이스는 Alloy 가 목록조차 받지 않는다.
+      discovery.kubernetes "pods" {
+        role = "pod"
+
+        namespaces {
+          names = ["margin-watch"]
+        }
+      }
+
+      // ② Loki 에 붙일 라벨을 만든다: namespace, pod, container, app.
+      //    app 은 파드의 app.kubernetes.io/name 라벨이고, 없으면 파드 이름이다(규칙 순서가 중요하다: 뒤 규칙이 앞 값을 덮어쓴다).
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+
+        // 방어: 위 namespaces 설정과 별개로, margin-watch 가 아닌 것은 버린다
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex         = "margin-watch"
+          action        = "keep"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+
+        // app 기본값: 파드 이름
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "app"
+        }
+
+        // app.kubernetes.io/name 라벨이 있으면 그 값으로 덮어쓴다(비어 있지 않을 때만)
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          regex         = "(.+)"
+          target_label  = "app"
+        }
+      }
+
+      // ③ 쿠버네티스 API 로 로그를 읽는다
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      // ④ Loki 로 보낸다(서비스 loki, 포트 3100, 인증 없음)
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+
+# 권한은 margin-watch 네임스페이스 하나의 Role 로만 준다(ClusterRole 이 아니다).
+# 차트 기본 규칙은 모든 네임스페이스의 ConfigMap·Secret 읽기까지 열어 두므로, 필요한 것(파드 목록·로그)만 남기고 바꾼다.
+# 이 목록은 차트 기본 목록을 대체한다(합쳐지지 않는다).
+rbac:
+  create: true
+  namespaces:
+    - margin-watch
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "pods/log"]
+      verbs: ["get", "list", "watch"]
+  clusterRules: []
+
+# PodLogs CRD(monitoring.grafana.com)는 쓰지 않는다. 끄면 클러스터 전체 자원(CRD)을 만들지 않는다.
+crds:
+  create: false
+
+# Alloy 화면·API(12345 포트)용 서비스는 만들지 않는다. 필요하면 `kubectl port-forward` 로 파드에 바로 붙는다.
+service:
+  enabled: false
+
+# 설정 파일이 바뀌면 파드를 다시 띄우지 않고 읽게 하는 보조 컨테이너. 작게 제한한다(기본은 한도 없음).
+configReloader:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
