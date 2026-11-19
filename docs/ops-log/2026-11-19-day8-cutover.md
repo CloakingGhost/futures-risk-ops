@@ -39,7 +39,7 @@ compose 의 옛 collector·risk 를 끄고 k3d 클러스터(네임스페이스 `
 | A7 | 메모리 | collector 약 195Mi, risk 약 190Mi, postgres 약 86Mi(한도 512Mi/512Mi/1Gi 안) |
 
 ## 아직 확인하지 못한 것 / 다음에 할 일
-- **16:50 무렵**: 일봉 15일 채움이 끝났으므로 `helm upgrade collector --reuse-values --set dailyClose.runOnStart=false --set dailyClose.lookbackDays=5`. Recreate 라 collector 가 재시작되므로 **장이 닫힌 시간(주간 마감 16:45 뒤)에** 한다. 토큰은 11/19 14:24 에 발급돼 6시간 안(20:24 전)에 다시 요청하면 같은 토큰이 오므로 이 재시작은 새 발급을 일으키지 않는다고 본다(Day 7 에서 확인한 동작).
+- **16:52 완료**: 주간 마감 뒤(`collector_market_session_open`=0, 상태 `IDLE`, `daily_bar` 15행) `helm upgrade collector --reuse-values --set dailyClose.runOnStart=false --set dailyClose.lookbackDays=5`. 리비전 2, Recreate 로 새 파드(16:52:37~16:52:50, 약 13초), 새 파드 재시작 0. 로그에 `next daily close at 2026-11-19T08:00:00Z`(17:00 KST)와 `session gate closed: staying disconnected until the next session NIGHT 2026-11-19T19:00+09:00` 가 찍혔다(수능일 야간 개장 19:00 설정과 일치). ServiceMonitor 는 켜진 채 유지됐다. 새 토큰 발급 로그는 없다(재시작이 토큰 발급 6시간 안이라 같은 토큰을 쓴다고 본다).
 - **17:00**: 수능일 보정 일봉 실행을 클러스터 collector 가 하는지(로그 `next daily close at 2026-11-19T08:00:00Z`).
 - **18:59~19:00**: 수능일 야간 접속과 첫 야간 체결(`session=NIGHT`, 거래일 11/20).
 - **11/20 06:10**: 06:00:00 체결이 NIGHT 로 분류됐는지, 접속이 06:00:10 쯤 끊겼는지, 재시작 0.
