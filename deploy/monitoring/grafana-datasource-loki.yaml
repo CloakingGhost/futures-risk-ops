@@ -1,0 +1,31 @@
+# Grafana 데이터소스 Loki(Day 9). kube-prometheus-stack 의 Grafana sidecar 가 라벨 grafana_datasource: "1" 인 ConfigMap 을 읽어 데이터소스로 올린다.
+#   (kube-prometheus-stack-values.yaml 의 grafana.sidecar.datasources 와 렌더링된 sidecar 의 LABEL=grafana_datasource, LABEL_VALUE=1 로 확인했다.
+#    searchNamespace 를 따로 정하지 않았으므로 sidecar 는 Grafana 와 같은 네임스페이스(monitoring)만 본다. 그래서 이 ConfigMap 도 monitoring 에 둔다)
+#
+# 적용(운영 작업. Loki 를 먼저 설치한다: deploy/monitoring/loki-values.yaml):
+#   kubectl apply -f deploy/monitoring/grafana-datasource-loki.yaml
+# 적용하면 sidecar 가 감지해 Grafana 를 다시 읽게 한다(파드 재시작 없음). Grafana 의 Explore 에서 데이터소스 Loki 를 고르고
+# {app="collector"} 처럼 앱 이름으로 로그를 찾는다(라벨은 deploy/monitoring/alloy-values.yaml 의 namespace, pod, container, app).
+#
+# URL 은 Loki 차트가 만드는 서비스 loki(포트 3100, 이름 http-metrics)다. 인증이 없어 secureJsonData·basicAuth 가 없다. 비밀 값은 없다(절대 규칙 2).
+# isDefault 는 false 다: 기본 데이터소스는 Prometheus 로 둔다(스택 values 기본).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-loki
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+    app.kubernetes.io/name: grafana-datasource-loki
+    app.kubernetes.io/part-of: margin-watch-monitoring
+data:
+  loki-datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        uid: loki
+        access: proxy
+        url: http://loki.monitoring.svc:3100
+        isDefault: false
+        editable: false
