@@ -40,7 +40,7 @@ compose 의 옛 collector·risk 를 끄고 k3d 클러스터(네임스페이스 `
 
 ## 아직 확인하지 못한 것 / 다음에 할 일
 - **16:52 완료**: 주간 마감 뒤(`collector_market_session_open`=0, 상태 `IDLE`, `daily_bar` 15행) `helm upgrade collector --reuse-values --set dailyClose.runOnStart=false --set dailyClose.lookbackDays=5`. 리비전 2, Recreate 로 새 파드(16:52:37~16:52:50, 약 13초), 새 파드 재시작 0. 로그에 `next daily close at 2026-11-19T08:00:00Z`(17:00 KST)와 `session gate closed: staying disconnected until the next session NIGHT 2026-11-19T19:00+09:00` 가 찍혔다(수능일 야간 개장 19:00 설정과 일치). ServiceMonitor 는 켜진 채 유지됐다. 새 토큰 발급 로그는 없다(재시작이 토큰 발급 6시간 안이라 같은 토큰을 쓴다고 본다).
-- **17:00**: 수능일 보정 일봉 실행을 클러스터 collector 가 하는지(로그 `next daily close at 2026-11-19T08:00:00Z`).
+- **17:00 완료**: 수능일 보정 일봉을 클러스터 collector 가 실행했다(17:00:00, 요청 1, 실패 0, 5행 = 11/13~11/19). `daily_bar` 는 16행(10/29~11/19)이 됐고(15행 + 오늘 날짜 1행, 나머지는 같은 키로 덮어씀), 지표 `collector_daily_close_last_success_timestamp_seconds` 가 갱신됐다(17:05 기준 327초 전). 로그의 접근 토큰 만료 시각이 14:24 발급분과 같은 11/20 14:24:36 이라 **재시작 뒤에도 같은 토큰이 쓰였다**(새 발급 아님으로 본다). 다음 일봉 예약은 11/20 16:00 KST. 울리는 알람 0, 파드 재시작 0.
 - **18:59~19:00**: 수능일 야간 접속과 첫 야간 체결(`session=NIGHT`, 거래일 11/20).
 - **11/20 06:10**: 06:00:00 체결이 NIGHT 로 분류됐는지, 접속이 06:00:10 쯤 끊겼는지, 재시작 0.
 - **11/20 14:24 전후**: 접근 토큰이 만료되는 시각. 새 토큰 발급(KIS 카카오톡 안내가 이 시각으로 옮겨 간다)과 그 뒤 일봉·접속이 정상인지.
