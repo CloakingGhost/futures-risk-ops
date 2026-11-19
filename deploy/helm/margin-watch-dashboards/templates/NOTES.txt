@@ -1,0 +1,2 @@
+Grafana dashboards were packaged as ConfigMaps labelled {{ .Values.sidecar.label }}={{ .Values.sidecar.labelValue }} in namespace {{ .Release.Namespace }}.
+The Grafana sidecar of kube-prometheus-stack loads them within about a minute. Dashboards are read-only copies: edit the JSON in files/, not in the Grafana UI.

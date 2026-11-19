@@ -1,0 +1,11 @@
+# margin-watch-dashboards 차트 값. 대시보드 내용은 값이 아니라 files/*.json 에 있다(원본은 이 폴더 한 곳뿐이다).
+# Grafana sidecar 가 라벨 grafana_dashboard: "1" 인 ConfigMap 을 모든 네임스페이스에서 읽어 간다
+# (deploy/monitoring/kube-prometheus-stack-values.yaml 의 grafana.sidecar.dashboards). 설치 네임스페이스는 monitoring 이다.
+
+# ConfigMap 에 붙일 라벨 이름과 값. sidecar 의 label, labelValue 와 같아야 한다.
+sidecar:
+  label: grafana_dashboard
+  labelValue: "1"
+
+# ConfigMap 에 더 붙일 라벨(비어 있어도 된다)
+labels: {}

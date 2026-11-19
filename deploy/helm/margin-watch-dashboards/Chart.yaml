@@ -1,0 +1,6 @@
+apiVersion: v2
+name: margin-watch-dashboards
+description: 마진워치 Grafana 대시보드 4종(수집 상태, 수집 지연, JVM·DB, 리스크 이벤트). JSON 원본은 files/ 한 곳에만 있고 차트가 대시보드마다 ConfigMap 하나로 감싼다.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
