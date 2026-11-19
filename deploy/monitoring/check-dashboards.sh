@@ -136,8 +136,8 @@ for path in files:
             errors.append("%s: no query" % where)
         for t in targets:
             ds = t.get("datasource") or p.get("datasource") or {}
-            if ds.get("type") != "prometheus" or ds.get("uid") != "Prometheus":
-                errors.append("%s: datasource must be the default Prometheus (uid Prometheus)" % where)
+            if ds.get("type") != "prometheus" or ds.get("uid") != "prometheus":
+                errors.append("%s: datasource must be the default Prometheus (uid prometheus, kube-prometheus-stack 기본값)" % where)
             expr = t.get("expr")
             if not expr:
                 errors.append("%s: target without expr" % where)
