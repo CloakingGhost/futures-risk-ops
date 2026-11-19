@@ -1,0 +1,386 @@
+# 알람 규칙 단위 시험(promtool test rules). 규칙 원본 파일을 그대로 읽는다.
+#   deploy/monitoring/check.sh 가 돌린다.
+#
+# 모든 시계열은 합성이다(손으로 만든 값, 실제 시세 아님). 시계열은 1970-01-01 00:00 UTC 에서 시작하므로
+# 시각 t(초)는 UTC 로 t/3600 시, KST 로는 +9시간이다. 아래 시각 표:
+#   22020 = 06:07:00 UTC = 15:07 KST     23700 = 06:35:00 UTC = 15:35 KST (주간 종가 단일가 시작)
+#   24300 = 06:45:00 UTC = 15:45 KST (주간 종가 단일가 끝, 첫 체결)
+#   75000 = 20:50:00 UTC = 05:50 KST (야간 종가 단일가 시작)   75600 = 21:00:00 UTC = 06:00 KST (끝)
+rule_files:
+  - ../../helm/margin-watch-rules/files/margin-watch.rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  # ===== ① CollectorNoTradeInSession =====================================================
+
+  - name: "1-a 정상: 체결이 계속 들어오면 종가 단일가 안팎 어디서도 울리지 않는다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '0+30x3000'   # 값이 늘 현재 시각과 같다 = 막 체결을 받았다
+    alert_rule_test:
+      - {eval_time: 22020s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+      - {eval_time: 24000s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+      - {eval_time: 75300s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+
+  - name: "1-b 장중(종가 단일가 밖) 2분 넘게 체결이 없으면 울린다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '22020+0x3000'   # 마지막 체결 06:07:00 UTC 뒤로 멈춤
+    alert_rule_test:
+      - {eval_time: 22110s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 90초: 아직 120초 아래
+      - {eval_time: 22200s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 180초: 조건은 참, for 2m 대기(pending)
+      - eval_time: 23040s   # 1020초
+        alertname: CollectorNoTradeInSession
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: collector
+              instance: "10.42.0.10:8081"
+            exp_annotations:
+              summary: "장중인데 체결이 들어오지 않는다"
+              description: "collector (10.42.0.10:8081) 가 세션이 열려 있는데 마지막 체결을 받은 지 17m 0s 가 지났다. 종가 단일가 구간(주간 15:35~15:45, 야간 05:50~06:00 KST)은 뺐다."
+
+  - name: "1-c 주간 종가 단일가(15:35~15:45 KST)에는 체결이 없어도 울리지 않고, 끝난 뒤에도 공백이 이어지면 울린다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '23699+0x3000'   # 마지막 체결 15:34:59 KST 뒤로 멈춤
+    alert_rule_test:
+      - {eval_time: 23880s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 15:38 KST, 공백 181초 > 120 이지만 구간 안
+      - {eval_time: 24240s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 15:44 KST, 구간 안
+      - {eval_time: 24300s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 15:45 KST: 구간이 풀려 pending 시작
+      - eval_time: 24480s   # 구간이 끝난 뒤에도 체결이 없다 -> 2분 뒤 울린다
+        alertname: CollectorNoTradeInSession
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: collector
+              instance: "10.42.0.10:8081"
+            exp_annotations:
+              summary: "장중인데 체결이 들어오지 않는다"
+              description: "collector (10.42.0.10:8081) 가 세션이 열려 있는데 마지막 체결을 받은 지 13m 1s 가 지났다. 종가 단일가 구간(주간 15:35~15:45, 야간 05:50~06:00 KST)은 뺐다."
+
+  - name: "1-d 주간 종가 단일가가 끝나고 첫 체결이 스크레이프 한 번 늦게 반영돼도 울리지 않는다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        # 15:45:00 첫 체결이 다음 스크레이프(24330)에야 지표에 반영된다. 24300 한 번은 공백이 길어 보이지만 pending 에서 끝난다.
+        values: '23699+0x810 24330+30x2189'
+    alert_rule_test:
+      - {eval_time: 24300s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+      - {eval_time: 24420s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+      - {eval_time: 24600s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+
+  - name: "1-e 야간 종가 단일가(05:50~06:00 KST)에는 울리지 않고, 끝난 뒤 공백이 이어지면 울린다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '74995+0x3000'   # 마지막 일반 체결 05:49:55 KST(20:49:55 UTC) 뒤로 멈춤
+    alert_rule_test:
+      - {eval_time: 75180s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 05:53 KST, 공백 185초 > 120 이지만 구간 안
+      - {eval_time: 75540s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 05:59 KST, 구간 안
+      - eval_time: 75720s   # 06:02 KST: 구간이 끝난 뒤에도 공백이 이어진다
+        alertname: CollectorNoTradeInSession
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: collector
+              instance: "10.42.0.10:8081"
+            exp_annotations:
+              summary: "장중인데 체결이 들어오지 않는다"
+              description: "collector (10.42.0.10:8081) 가 세션이 열려 있는데 마지막 체결을 받은 지 12m 5s 가 지났다. 종가 단일가 구간(주간 15:35~15:45, 야간 05:50~06:00 KST)은 뺐다."
+
+  - name: "1-f 체결을 아직 한 번도 받지 않았으면(타임스탬프 0) 울리지 않는다"
+    interval: 30s
+    input_series:
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '0+0x3000'
+    alert_rule_test:
+      - {eval_time: 25020s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+
+  - name: "1-g 마감 뒤 10초(세션 닫힘인데 구독 중)와 세션이 닫힌 뒤 오래 체결이 없는 것은 이상이 아니다"
+    interval: 30s
+    input_series:
+      # 세션은 21960 초(06:06 UTC)까지 열려 있다가 닫힌다. 그 뒤에도 접속은 10초쯤 남는다(SUBSCRIBED = 1)
+      - series: 'collector_market_session_open{job="collector",instance="10.42.0.10:8081"}'
+        values: '1+0x732 0+0x2267'
+      - series: 'collector_ws_state{job="collector",instance="10.42.0.10:8081",state="SUBSCRIBED"}'
+        values: '1+0x3000'
+      - series: 'collector_last_trade_received_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '21960+0x3000'   # 마지막 체결은 마감 정각의 종가 체결
+    alert_rule_test:
+      - {eval_time: 21990s, alertname: CollectorNoTradeInSession, exp_alerts: []}   # 마감 직후(접속은 남아 있다)
+      - {eval_time: 22200s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+      - {eval_time: 30000s, alertname: CollectorNoTradeInSession, exp_alerts: []}
+
+  # ===== ② CollectorIngestLatencyP95High ===================================================
+
+  - name: "2-a 적재가 0.1초 안에 끝나면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="0.1"}'
+        values: '0+600x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="1"}'
+        values: '0+600x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="+Inf"}'
+        values: '0+600x120'
+    alert_rule_test:
+      - {eval_time: 1200s, alertname: CollectorIngestLatencyP95High, exp_alerts: []}
+
+  - name: "2-b p95 가 1초 바로 아래(0.975초)면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="0.5"}'
+        values: '0+0x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="1"}'
+        values: '0+600x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="+Inf"}'
+        values: '0+600x120'
+    alert_rule_test:
+      - {eval_time: 1200s, alertname: CollectorIngestLatencyP95High, exp_alerts: []}
+
+  - name: "2-c 체결이 모두 1초 넘게 걸리면 5분 뒤 울린다"
+    interval: 1m
+    input_series:
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="0.1"}'
+        values: '0+0x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="1"}'
+        values: '0+0x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="2.5"}'
+        values: '0+600x120'
+      - series: 'collector_receive_to_commit_seconds_bucket{job="collector",le="+Inf"}'
+        values: '0+600x120'
+    alert_rule_test:
+      - {eval_time: 240s, alertname: CollectorIngestLatencyP95High, exp_alerts: []}   # 아직 5분이 안 됐다
+      - eval_time: 900s
+        alertname: CollectorIngestLatencyP95High
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collector
+            exp_annotations:
+              summary: "체결 적재 지연 p95 가 1초를 넘었다"
+              description: "collector 의 수신에서 커밋까지 p95 가 2.425s 다(기준 1초, 5분 이어짐)."
+
+  # ===== ③ CollectorReconnectsFrequent =====================================================
+
+  - name: "3-a 10분에 3번 재접속하면 울리고, 2번이면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_ws_reconnects_total{job="collector",instance="10.42.0.10:8081"}'
+        values: '0 0 0 1 1 2 3+0x40'
+      - series: 'collector_ws_reconnects_total{job="other",instance="10.42.0.11:8081"}'
+        values: '0 0 0 1 1 2 2+0x40'
+    alert_rule_test:
+      - eval_time: 600s
+        alertname: CollectorReconnectsFrequent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collector
+              instance: "10.42.0.10:8081"
+            exp_annotations:
+              summary: "웹소켓 재접속이 10분에 3번 이상이다"
+              description: "collector (10.42.0.10:8081) 가 10분 동안 3 번 다시 접속했다."
+      - {eval_time: 1800s, alertname: CollectorReconnectsFrequent, exp_alerts: []}   # 윈도에서 빠져 해소
+
+  # ===== ④ CollectorMissingVolume ==========================================================
+
+  - name: "4-a 끊긴 동안(reconnect) 누락이 늘면 울리고, 연결 중 빈틈(stream)만 늘면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_missing_volume_total{job="collector",instance="10.42.0.10:8081",kind="reconnect"}'
+        values: '0 0 0 5+0x40'
+      - series: 'collector_missing_volume_total{job="collector",instance="10.42.0.10:8081",kind="stream"}'
+        values: '0 0 0 9+0x40'
+    alert_rule_test:
+      - eval_time: 600s
+        alertname: CollectorMissingVolume
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collector
+              instance: "10.42.0.10:8081"
+              kind: reconnect
+            exp_annotations:
+              summary: "끊긴 동안 체결이 누락됐다"
+              description: "collector (10.42.0.10:8081) 가 최근 10분 사이 끊긴 동안 약 5 계약의 체결을 놓쳤다."
+      - {eval_time: 1800s, alertname: CollectorMissingVolume, exp_alerts: []}   # 10분 윈도에서 빠지면 해소
+
+  # ===== ⑤ NodeDiskUsageHigh ===============================================================
+
+  - name: "5-a 실제 디스크가 85% 차면 10분 뒤 한 번만 울리고, 가상 파일시스템·제외 경로는 무시한다"
+    interval: 1m
+    input_series:
+      # 실제 디스크 /dev/sda1: 85% 사용. 같은 장치가 바인드 마운트로 두 번 나와도 알람은 하나다
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '150+0x120'
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/etc/hosts"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/etc/hosts"}'
+        values: '150+0x120'
+      # 두 번째 디스크: 70% 사용 -> 울리지 않는다
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="/dev/sdb1",fstype="ext4",mountpoint="/data"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="/dev/sdb1",fstype="ext4",mountpoint="/data"}'
+        values: '300+0x120'
+      # 가상 파일시스템이 꽉 차 있어도 무시한다(tmpfs, overlay)
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="tmpfs",fstype="tmpfs",mountpoint="/run"}'
+        values: '0+0x120'
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="overlay",fstype="overlay",mountpoint="/var/lib/x"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="overlay",fstype="overlay",mountpoint="/var/lib/x"}'
+        values: '0+0x120'
+      # 컨테이너 런타임 경로(kubelet 볼륨)는 무시한다
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="/dev/sdc1",fstype="ext4",mountpoint="/var/lib/kubelet/pods/x/volumes"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="/dev/sdc1",fstype="ext4",mountpoint="/var/lib/kubelet/pods/x/volumes"}'
+        values: '0+0x120'
+    alert_rule_test:
+      - {eval_time: 300s, alertname: NodeDiskUsageHigh, exp_alerts: []}   # 10분이 안 됐다
+      - eval_time: 900s
+        alertname: NodeDiskUsageHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: node1
+              device: /dev/sda1
+            exp_annotations:
+              summary: "노드 디스크 사용률이 80% 를 넘었다"
+              description: "node1 의 /dev/sda1 사용률이 85% 다(10분 이어짐)."
+
+  - name: "5-b 디스크가 79% 면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '1000+0x120'
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="node1",device="/dev/sda1",fstype="ext4",mountpoint="/"}'
+        values: '210+0x120'
+    alert_rule_test:
+      - {eval_time: 1800s, alertname: NodeDiskUsageHigh, exp_alerts: []}
+
+  # ===== ⑥ DbConnectionsHigh ===============================================================
+
+  - name: "6-a DB 연결 풀이 90% 찬 앱만 5분 뒤 울린다(앱별로 따로 본다)"
+    interval: 1m
+    input_series:
+      - series: 'hikaricp_connections_active{job="collector",pool="HikariPool-1"}'
+        values: '9+0x120'
+      - series: 'hikaricp_connections_max{job="collector",pool="HikariPool-1"}'
+        values: '10+0x120'
+      - series: 'hikaricp_connections_active{job="risk",pool="HikariPool-1"}'
+        values: '2+0x120'
+      - series: 'hikaricp_connections_max{job="risk",pool="HikariPool-1"}'
+        values: '10+0x120'
+    alert_rule_test:
+      - {eval_time: 180s, alertname: DbConnectionsHigh, exp_alerts: []}   # 5분이 안 됐다
+      - eval_time: 600s
+        alertname: DbConnectionsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collector
+              pool: HikariPool-1
+            exp_annotations:
+              summary: "DB 연결 풀이 80% 넘게 찼다"
+              description: "collector 의 풀 HikariPool-1 사용률이 90% 다(5분 이어짐)."
+
+  - name: "6-b 풀 사용률이 80% 이면(초과가 아니면) 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'hikaricp_connections_active{job="collector",pool="HikariPool-1"}'
+        values: '8+0x120'
+      - series: 'hikaricp_connections_max{job="collector",pool="HikariPool-1"}'
+        values: '10+0x120'
+    alert_rule_test:
+      - {eval_time: 900s, alertname: DbConnectionsHigh, exp_alerts: []}
+
+  # ===== ⑦ PodRestartingRepeatedly =========================================================
+
+  - name: "7-a margin-watch 에서 30분에 3번 재시작하면 울리고, 1번이면 울리지 않고, 다른 네임스페이스는 보지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="margin-watch",pod="collector-abc",container="collector"}'
+        values: '0 1 2 3+0x80'
+      - series: 'kube_pod_container_status_restarts_total{namespace="margin-watch",pod="risk-def",container="risk"}'
+        values: '0 1+0x80'
+      - series: 'kube_pod_container_status_restarts_total{namespace="monitoring",pod="grafana-x",container="grafana"}'
+        values: '0 1 2 3+0x80'
+    alert_rule_test:
+      - eval_time: 600s
+        alertname: PodRestartingRepeatedly
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: margin-watch
+              pod: collector-abc
+              container: collector
+            exp_annotations:
+              summary: "파드가 반복해서 재시작한다"
+              description: "margin-watch/collector-abc 의 컨테이너 collector 가 30분 동안 3 번 재시작했다."
+      - {eval_time: 4500s, alertname: PodRestartingRepeatedly, exp_alerts: []}   # 30분 윈도에서 빠져 해소
+
+  # ===== ⑧ CollectorDailyCloseStale ========================================================
+  # 25시간 = 90000초, 100시간 = 360000초. 시계열은 1970-01-01 에서 시작하므로 시각 값이 곧 초다. interval 1m: 값이 1시간에 한 번만 있으면 5분 조회 한계(lookback) 때문에 중간에 비어 for 대기가 끊긴다.
+
+  - name: "8-a 값이 0(꺼짐 또는 아직 없음)이면 오래 지나도 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_daily_close_last_success_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '0+0x6900'
+    alert_rule_test:
+      - {eval_time: 110h, alertname: CollectorDailyCloseStale, exp_alerts: []}
+
+  - name: "8-b 마지막 성공이 25시간 전이면 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_daily_close_last_success_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '3600+0x6900'   # 1시간 시각(3600초)에 성공 -> 평가 시각 26시간에서 25시간 전
+    alert_rule_test:
+      - {eval_time: 26h, alertname: CollectorDailyCloseStale, exp_alerts: []}
+
+  - name: "8-c 금요일 16:00 성공 뒤 휴장 주말을 지나 화요일 아침(약 92시간)까지는 울리지 않는다"
+    interval: 1m
+    input_series:
+      - series: 'collector_daily_close_last_success_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '3600+0x6900'
+    alert_rule_test:
+      - {eval_time: 93h, alertname: CollectorDailyCloseStale, exp_alerts: []}   # 92시간 전 성공
+
+  - name: "8-d 마지막 성공이 100시간을 넘기고 30분이 지나면 울린다"
+    interval: 1m
+    input_series:
+      - series: 'collector_daily_close_last_success_timestamp_seconds{job="collector",instance="10.42.0.10:8081"}'
+        values: '3600+0x6900'   # 1시간 시각에 성공한 뒤 멈춤
+    alert_rule_test:
+      - {eval_time: 101h, alertname: CollectorDailyCloseStale, exp_alerts: []}   # 정확히 100시간 전: 기준(초과)을 넘지 않았다
+      - {eval_time: 101h10m, alertname: CollectorDailyCloseStale, exp_alerts: []}   # 100시간 초과, for 30m 대기 중
+      - eval_time: 102h   # 101시간 전, for 30m 지남
+        alertname: CollectorDailyCloseStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: collector
+              instance: "10.42.0.10:8081"
+            exp_annotations:
+              summary: "일봉 수집이 4일 넘게 성공하지 않았다"
+              description: "collector (10.42.0.10:8081) 의 일봉 작업이 마지막으로 성공한 지 4d 5h 0m 0s 가 지났다(기준 100시간)."

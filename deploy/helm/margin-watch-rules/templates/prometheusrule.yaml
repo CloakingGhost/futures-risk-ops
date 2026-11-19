@@ -1,0 +1,20 @@
+{{- /*
+  규칙 원본(files/margin-watch.rules.yaml)을 그대로 PrometheusRule 로 감싼다.
+  파일을 템플릿으로 읽지 않고(.Files.Get + fromYaml) 문자열로 넘기므로 알람 설명의 {{ $labels.job }} 같은 Prometheus 템플릿을 이스케이프하지 않아도 된다.
+  CRD 가 없는 클러스터에서는 아무것도 만들지 않고, NOTES 로 알린다.
+*/ -}}
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: margin-watch
+  labels:
+    app.kubernetes.io/name: margin-watch-rules
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: margin-watch
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- toYaml (.Files.Get "files/margin-watch.rules.yaml" | fromYaml) | nindent 2 }}
+{{- end }}
