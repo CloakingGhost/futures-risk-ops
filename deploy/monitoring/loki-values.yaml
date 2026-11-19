@@ -1,0 +1,158 @@
+# Loki 값(Day 9, 맨 마지막 단계). 단일 노드 k3d 클러스터(docs/adr/0001-local-cluster.md)에서 collector·risk·postgres 로그를 3일 동안 모아 검색하는 용도다.
+#
+# 차트: grafana/loki 7.5.0 (앱 v3.6.16)
+#   고른 이유: 2026-10-22 에 나온 버전이다. 작업일(2026-11-19)에서 2주(11-05) 이상 지난 것 중 가장 새것이다.
+#   뒤에 나온 7.6.0(2026-11-10), 7.7.0(2026-11-19)은 아직 2주가 안 됐다. 날짜는 차트 저장소 index.yaml 의 created 값이다.
+#   차트를 올릴 때는 `helm show values grafana/loki --version <새 버전>` 으로 이 파일의 키 이름이 그대로인지 먼저 본다.
+#   이 버전 값으로 확인한 키: deploymentMode, loki.auth_enabled, loki.commonConfig, loki.storage.type, loki.schemaConfig,
+#   loki.limits_config, loki.compactor, singleBinary.*(replicas, persistence, resources), gateway·chunksCache·resultsCache·lokiCanary·test·minio 의 enabled.
+#   (Loki 차트는 메이저마다 키가 많이 바뀐다. 6.x 문서에 있던 loki.storage.filesystem 은 이 버전 기본값에 없다)
+#
+# 설치(운영 작업. 이 저장소의 검사 스크립트 deploy/monitoring/check-logging.sh 는 클러스터를 건드리지 않는다):
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm install loki grafana/loki --version 7.5.0 -n monitoring -f deploy/monitoring/loki-values.yaml
+#   (릴리스 이름은 loki 로 둔다. 서비스 이름 loki 를 Alloy 설정과 Grafana 데이터소스가 그대로 쓴다)
+#
+# 바깥으로 열지 않는다: 서비스는 ClusterIP, 인증은 없다(auth_enabled: false). 클러스터 안(Alloy → Loki, Grafana → Loki)에서만 쓴다.
+# 이 파일에 비밀 값은 없다(절대 규칙 2). 로그 내용은 저장소에 복사하지 않는다(절대 규칙 3).
+#
+# 메모리가 모자라면(카드 '막히면'): 아래 limits_config 의 retention_period 를 72h 에서 24h(보존 1일)로 줄이고 helm upgrade 한다.
+#   (카드의 '스크레이프 간격 30초'는 Prometheus 쪽 지표 이야기다. 로그는 스크레이프가 아니라 Alloy 가 스트림으로 읽으므로 이 파일과 상관없다)
+
+# 단일 노드, 파드 하나. SingleBinary 는 모든 구성요소를 한 프로세스로 돌리고 파일시스템에 저장한다.
+# SimpleScalable(차트 기본값)과 Distributed 는 객체 저장소(S3 등)가 필요해서 이 PC 에는 맞지 않는다.
+deploymentMode: SingleBinary
+
+loki:
+  # 인증을 끈다. 멀티 테넌트를 쓰지 않으므로 헤더(X-Scope-OrgID)가 필요 없다. 클러스터 밖으로 열지 않기 때문에 가능한 선택이다.
+  auth_enabled: false
+
+  # 파드가 하나라 복제본은 1이다(기본 3 은 SimpleScalable 용이다)
+  commonConfig:
+    replication_factor: 1
+
+  # 파일시스템 저장. 차트 기본값은 s3 라서 바꿔야 한다. 저장 위치는 아래 singleBinary.persistence 의 PVC(/var/loki)다.
+  storage:
+    type: filesystem
+
+  # 색인 스키마. tsdb + v13 이 현재 권장 조합이고, 색인 주기는 24h 여야 보존(compactor 삭제)이 동작한다.
+  # from 은 이 설치보다 이전인 아무 날짜다(그 날짜부터 이 스키마를 쓴다).
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  limits_config:
+    # 보존 72시간(3일). 카드 지시. compactor 의 retention_enabled 가 켜져 있어야 실제로 지운다(아래).
+    retention_period: 72h
+    # 3일보다 오래된 로그는 받지 않는다(보존 기간 밖이라 곧바로 지워질 것이다)
+    reject_old_samples: true
+    reject_old_samples_max_age: 72h
+    # 차트 기본값(volume_enabled 등)은 그대로 두지 않고 쓰는 것만 둔다. 기본 블록을 통째로 대체하므로 필요한 키를 다시 적었다.
+    max_cache_freshness_per_query: 10m
+    split_queries_by_interval: 15m
+    query_timeout: 300s
+    volume_enabled: true
+
+  # 보존(오래된 로그 삭제)은 compactor 가 한다. retention_enabled 가 꺼져 있으면 retention_period 는 아무것도 지우지 않는다.
+  # delete_request_store 는 보존을 켜면 필수다(삭제 요청 기록을 어디에 둘지).
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
+    compaction_interval: 10m
+    retention_delete_delay: 2h
+
+  # 사용 통계를 grafana.com 으로 보내지 않는다(셀프 호스팅, 바깥으로 보내는 것 없음)
+  analytics:
+    reporting_enabled: false
+
+singleBinary:
+  replicas: 1
+  # 메모리: 요청 256Mi, 한도 768Mi. 로그가 작은 단일 노드(앱 3개, 초당 수십 줄)라서 요청은 작게, 한도는 색인 compaction 순간 증가분을 견디게 넉넉하게 잡았다.
+  # 한도를 넘으면 OOMKilled 로 재시작하고 그동안 로그는 Alloy 가 다시 보낸다. 값은 추정이다: 설치 뒤 `kubectl top pod -n monitoring` 으로 보고 조정한다.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+  # PVC 5Gi, 저장소 클래스는 k3s 기본(local-path). local-path 는 PVC 용량을 강제하지 않는다(노드 디스크를 그대로 쓴다).
+  # 그래서 용량은 보존 72h 와 노드 디스크 알람(NodeDiskUsageHigh)으로 지킨다.
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: local-path
+  service:
+    type: ClusterIP
+  # 기본 affinity 는 같은 노드에 같은 파드를 두지 못하게 하는 규칙이다. 파드가 하나라 문제는 없지만 값은 그대로 둔다.
+
+# 단일 노드에 필요 없는 구성요소 끄기 -----------------------------------------------------------------
+# 게이트웨이(nginx): 인증·라우팅용. 서비스(loki)가 Loki 를 바로 가리키므로 필요 없다. 끄면 서비스 이름 loki 가 3100 포트로 Loki 를 직접 열어 준다.
+gateway:
+  enabled: false
+# memcached 캐시 2종: 큰 클러스터용. 메모리를 수 GB 요청하므로(기본 chunksCache 약 8GB) 단일 노드에서는 반드시 끈다.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+# 규칙 sidecar(loki-sc-rules): ConfigMap 에서 알람 규칙을 읽어 오는 보조 컨테이너다. 로그 기반 알람은 하지 않으므로(Day 9 하지 않는 것) 끈다.
+# 끄면 메모리를 아끼고, 클러스터 전체 ConfigMap·Secret 을 읽는 ClusterRole 도 만들지 않는다(rbac.namespaced).
+sidecar:
+  rules:
+    enabled: false
+rbac:
+  namespaced: true
+# 카나리(로그를 일부러 보내 Loki 를 시험하는 DaemonSet), Helm 시험 파드: 필요 없다
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+# 객체 저장소 MinIO: 파일시스템을 쓰므로 필요 없다(기본도 꺼짐)
+minio:
+  enabled: false
+# 모니터링 서브차트(자기 자신 감시: Grafana Agent 운영자, 대시보드, 규칙, ServiceMonitor): 켜지 않는다. 스택(kube-prometheus-stack)이 따로 있다.
+monitoring:
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+
+# SingleBinary 에서는 쓰지 않는 구성요소의 복제본을 0 으로 둔다(차트 기본값이 SimpleScalable 기준이라 명시한다)
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+ingester:
+  replicas: 0
+querier:
+  replicas: 0
+queryFrontend:
+  replicas: 0
+queryScheduler:
+  replicas: 0
+distributor:
+  replicas: 0
+compactor:
+  replicas: 0
+indexGateway:
+  replicas: 0
+bloomPlanner:
+  replicas: 0
+bloomGateway:
+  replicas: 0
+bloomBuilder:
+  replicas: 0
