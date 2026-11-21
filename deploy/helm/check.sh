@@ -23,6 +23,9 @@ fail() {
 command -v helm >/dev/null 2>&1 || fail "'helm' is not in PATH (see docs/ops-log/2026-11-16-k8s-tools-install.md)"
 [ -f "$CALENDAR" ] || fail "$CALENDAR not found"
 
+echo "== create-secrets.sh test (fake kubectl, synthetic values)"
+bash ../k3d/test-create-secrets.sh
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 

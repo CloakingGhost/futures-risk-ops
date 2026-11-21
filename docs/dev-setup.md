@@ -88,7 +88,8 @@ kubectl --context k3d-margin-watch get nodes
 ```
 
 - `helm`, `k3d` 가 `command not found` 이면 새 터미널을 연다(winget 이 PATH 에 넣는다). 그래도 안 되면 설치 기록의 '새 터미널에서 쓰기'.
-- **이 단계에서는 클러스터에 앱을 설치하지 않는다**(Day 8: DB StatefulSet, Secret 스크립트, Helm 배포). 차트는 `deploy/helm/collector`, `deploy/helm/risk`.
+- 앱 설치(postgres, collector, risk)는 Day 8 에 정리한 순서를 따른다: [docs/deploy-k3d.md](deploy-k3d.md). 차트는 `deploy/helm/collector`, `deploy/helm/risk`, `deploy/helm/postgres`(postgres 차트는 `feat/day8-postgres-chart` 가 병합되면 `main` 에 있다).
+- Secret 은 `.env` 에서 만든다: `./deploy/k3d/create-secrets.sh --dry-run`(이름만 출력)으로 확인한 뒤 `./deploy/k3d/create-secrets.sh`. 값은 화면에 나오지 않고, 이미 있는 `postgres-credentials` 는 `--force` 없이 덮어쓰지 않는다.
 - 장 시간 캘린더는 차트에 복사하지 않고 설치할 때 원본을 넣는다: `--set-file sessionCalendar=config/session-calendar.yaml`.
 - **클러스터에 collector 를 띄우기 전에 compose collector 를 먼저 끈다**(`docker compose --profile app stop collector`). KIS 접속은 하나라서 둘이 붙으면 충돌하고 체결이 중복 적재된다.
 
