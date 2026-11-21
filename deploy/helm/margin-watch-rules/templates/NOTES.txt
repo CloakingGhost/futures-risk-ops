@@ -1,0 +1,3 @@
+{{- if not (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+WARNING: this cluster has no monitoring.coreos.com/v1 CRD, so no PrometheusRule was created. Install kube-prometheus-stack first.
+{{- end }}

@@ -1,0 +1,198 @@
+# kube-prometheus-stack 값(Day 9). 단일 노드 k3d 클러스터(docs/adr/0001-local-cluster.md)에서 collector·risk 를 보는 용도다.
+#
+# 차트: prometheus-community/kube-prometheus-stack 92.18.0 (앱 v0.94.2)
+#   고른 이유: 2026-11-04 에 나온 버전이다. 작업일(2026-11-19)에서 2주(11-05) 이상 지났고, 뒤에 나온 92.20~93.4 는 아직 2주가 안 됐다.
+#   차트를 올릴 때는 `helm show values` 로 이 파일의 키 이름이 그대로인지 먼저 본다(키 이름을 이 버전 값으로 확인했다).
+#
+# 설치(운영 작업. 이 저장소의 검사 스크립트는 클러스터를 건드리지 않는다):
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   kubectl create namespace monitoring
+#   (Secret grafana-admin 을 먼저 만든다. 키 이름은 admin-user, admin-password. 값은 이 저장소에 쓰지 않는다)
+#   helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack --version 92.18.0 \
+#     -n monitoring -f deploy/monitoring/kube-prometheus-stack-values.yaml
+#
+# 바깥으로 열지 않는다: 모든 서비스는 ClusterIP, 접속은 `kubectl port-forward` 만 쓴다(Grafana 는 서비스 kube-prometheus-stack-grafana).
+# 비밀번호·웹훅 주소 같은 값은 이 파일에 없다(절대 규칙 2). deploy/monitoring/check.sh 가 확인한다.
+
+# ---- 쓰지 않는 기본 규칙 끄기 -----------------------------------------------------------------
+# 이유: k3s 는 etcd·scheduler·controller-manager·kube-proxy 를 별도 파드가 아니라 k3s 프로세스 안에서 돌리고 지표 포트를
+# 노드 밖으로 열지 않는다. 스크레이프를 끄면 이 구성요소의 기본 알람(...Down, absent 류)이 계속 울리므로 규칙도 같이 끈다.
+# API 서버는 지표 종류(라벨 조합)가 많아 메모리를 가장 많이 쓰는 대상인데, 단일 노드 k3d 에서는 볼 일이 없어 같이 끈다.
+# 'general' 은 끄지 않는다: Watchdog 알람(늘 울림)이 들어 있어 알람 파이프라인이 살아 있는지 확인하는 용도다.
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeProxy: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    windows: false
+
+# k3s 에서 접근할 수 없는 구성요소 스크레이프 끄기(위 이유). 이 값이 false 면 해당 기본 대시보드도 만들어지지 않는다.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeApiServer:
+  enabled: false
+windowsMonitoring:
+  enabled: false
+
+# ---- Prometheus ----------------------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    # 보존 7일. 용량 상한(retentionSize)은 PVC(10Gi)의 80% 라서, 지표가 예상보다 늘어도 디스크가 차기 전에 오래된 것부터 지운다.
+    retention: 7d
+    retentionSize: 8GB
+    # 8GB 단일 노드 가정: 요청은 작게, 한도는 넉넉하게. Prometheus 가 이 스택 메모리의 대부분이다.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi
+    # 보존 7일이 뜻을 가지려면 파드가 다시 떠도 데이터가 남아야 한다. 저장소 클래스는 k3s 기본(local-path).
+    # local-path 는 PVC 용량을 강제하지 않는다(노드 디스크를 그대로 쓴다). 그래서 위 retentionSize 와 노드 디스크 알람으로 지킨다.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # 우리 ServiceMonitor·PrometheusRule 은 margin-watch 네임스페이스에 있고 Helm 릴리스 라벨(release=...)이 없다.
+    # 기본값(true)이면 이 스택 릴리스 라벨이 붙은 것만 고르므로 우리 것이 잡히지 않는다.
+    # false 로 두면 라벨 조건 없이 고르고, 네임스페이스는 {} 라서 모든 네임스페이스에서 찾는다.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    podMonitorNamespaceSelector: {}
+    ruleNamespaceSelector: {}
+
+# ---- Alertmanager ------------------------------------------------------------------------------
+# 켠다. 수신처는 없다(차트 기본 설정은 모든 알람을 'null' 수신처로 보낸다). 알람은 Alertmanager·Grafana 화면에서만 본다.
+# 알람은 Slack 웹훅으로 보낸다(사용자 결정 2026-11-19). 웹훅 주소는 이 파일에 없다: 사용자가 `.env` 의 SLACK_ALERTS_WEBHOOKS 에 넣은 값을
+# Secret `alertmanager-slack`(키 webhook-url, monitoring 네임스페이스)으로 만들어 두고(deploy/monitoring/create-slack-secret.sh),
+# Alertmanager 가 그 Secret 을 파일로 마운트해 `api_url_file` 로 읽는다. 카카오톡은 연결하지 않는다.
+# 우리 알람 8개(margin-watch-rules 차트)만 Slack 으로 보낸다. 스택 기본 규칙(Watchdog 등)은 보내지 않는다(Watchdog 은 늘 울리는 '파이프라인 확인용' 알람).
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    # 마운트 위치: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+    secrets:
+      - alertmanager-slack
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace, job]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: slack
+          matchers:
+            - alertname =~ "CollectorNoTradeInSession|CollectorIngestLatencyP95High|CollectorReconnectsFrequent|CollectorMissingVolume|NodeDiskUsageHigh|DbConnectionsHigh|PodRestartingRepeatedly|CollectorDailyCloseStale"
+    receivers:
+      - name: "null"
+      - name: slack
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+            send_resolved: true
+            title: '{{ if eq .Status "firing" }}[{{ .CommonLabels.severity }}]{{ else }}[해소]{{ end }} {{ .CommonLabels.alertname }}'
+            text: '{{ range .Alerts }}*{{ .Annotations.summary }}*{{ "\n" }}{{ .Annotations.description }}{{ "\n" }}{{ end }}'
+
+# ---- Grafana -----------------------------------------------------------------------------------
+grafana:
+  enabled: true
+  # 관리자 계정은 미리 만든 Secret 에서 읽는다. adminUser·adminPassword 는 쓰지 않는다(값이 저장소·helm 이력에 남는다).
+  # Secret 이름은 grafana-admin, 키 이름은 차트 기본인 admin-user, admin-password
+  # (grafana 서브차트 values 의 admin.existingSecret, userKey, passwordKey 로 확인).
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: ClusterIP
+  # 메모리: 처음에 limits 256Mi 로 설치했더니 시작 단계에서 OOMKilled(종료 코드 137) 로 CrashLoopBackOff 였다(2026-11-19 설치 때 관찰).
+  # 이 Grafana 버전은 시작할 때 API 서버를 올리느라 한도를 넘긴다. 768Mi 로 올리고, 평소 사용량은 `kubectl top pod -n monitoring` 으로 보고 조정한다.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+  # 대시보드는 ConfigMap 으로 올리고 sidecar 가 읽어 간다(Grafana 화면에서 고친 것은 저장되지 않는다. JSON 이 원본이다).
+  # 규칙은 sidecar 가 아니라 Prometheus Operator 가 PrometheusRule 을 읽어 간다(위 ruleSelectorNilUsesHelmValues 참고).
+  # Grafana 의 sidecar.alerts 는 Grafana 자체 알람용이라 쓰지 않는다.
+  # 우리 대시보드 ConfigMap 에 붙일 라벨: grafana_dashboard: "1" (차트 기본 라벨. 네임스페이스는 ALL)
+  sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+  # 쓰지 않는 기본 대시보드: AIX·Darwin 노드용(아래 nodeExporter 에서 끈다). etcd·scheduler·proxy·controller-manager·apiserver 대시보드는
+  # 위에서 각 구성요소를 껐으므로 만들어지지 않는다. Windows 도 끈 상태다.
+
+# ---- 나머지 구성요소 ---------------------------------------------------------------------------
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+nodeExporter:
+  operatingSystems:
+    linux:
+      enabled: true
+    # 쓰지 않는 운영체제용 대시보드를 만들지 않는다
+    aix:
+      enabled: false
+    darwin:
+      enabled: false
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 64Mi

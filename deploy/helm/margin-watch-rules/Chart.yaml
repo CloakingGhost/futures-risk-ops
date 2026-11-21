@@ -1,0 +1,6 @@
+apiVersion: v2
+name: margin-watch-rules
+description: 마진워치 알람 규칙 8개(PrometheusRule). 규칙 원본은 files/margin-watch.rules.yaml 한 곳이고 promtool 시험이 그 파일을 그대로 읽는다.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

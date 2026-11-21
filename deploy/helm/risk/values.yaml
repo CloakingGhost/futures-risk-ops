@@ -28,3 +28,10 @@ resources:
     memory: 256Mi
   limits:
     memory: 512Mi
+
+# 지표 수집(Day 9). ServiceMonitor 는 Prometheus Operator(kube-prometheus-stack)가 설치된 클러스터에서만 켠다.
+# 켜는 upgrade 가 파드 템플릿을 바꾸지는 않지만, 스택이 없는 클러스터에서는 CRD 가 없어 렌더링되지 않는다(.Capabilities 로 확인).
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s

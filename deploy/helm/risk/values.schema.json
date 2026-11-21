@@ -41,6 +41,20 @@
         "requests": { "type": "object" },
         "limits": { "type": "object" }
       }
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" }
+          }
+        }
+      }
     }
   }
 }
