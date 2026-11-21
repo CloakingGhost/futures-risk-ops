@@ -15,6 +15,14 @@ http://127.0.0.1:8081/actuator/health       # 상태 (UP/DOWN, DB 연결 포함)
 - Docker 안의 Prometheus 가 읽어야 할 때의 주소는 Day 9 에서 정한다. 그 전까지는 주소를 넓히지 않는다.
 - 스프링이 자동으로 붙이는 `jvm_*`, `process_*`, `hikaricp_*`, `tomcat_*`, `http_server_requests_*` 도 함께 나온다. 이것들은 고정 대상이 아니다.
 
+### risk 지표
+
+```
+http://127.0.0.1:8082/actuator/prometheus   # risk 지표 (Prometheus 텍스트 형식)
+```
+
+risk(8082)도 `/actuator/prometheus` 를 연다(2026-11-19 Day 9 PR 14). **스프링 자동 지표(`jvm_*`, `hikaricp_*`, `http_server_requests_*` 등)만 나오고 앱 고유 지표는 없다. 고정 대상이 아니다.** 알람·대시보드는 DB 연결 사용률(`hikaricp_connections_active` / `hikaricp_connections_max`)과 JVM 메모리, 요청 지연·오류 정도만 쓴다. collector 와 같이 127.0.0.1 로만 열린다(컨테이너는 `0.0.0.0`, 클러스터는 ClusterIP). env, beans, heapdump 등 다른 엔드포인트는 열지 않는다.
+
 ## 지표 10종
 
 카운터는 새로 세지 않고 기존 카운터를 읽는다. 그래서 로그 `ingest stats` 줄의 숫자와 같다(아래 '로그 항목').
@@ -103,3 +111,4 @@ collector_daily_close_last_success_timestamp_seconds 0.0
 
 - 2026-10-29: 처음 고정(Day 3 PR 6). 9종, 라벨, 히스토그램 칸.
 - 2026-11-16: 10번째 지표 `collector_daily_close_last_success_timestamp_seconds` 를 더함(Day 7 PR 10). 기존 9종의 이름·라벨·칸은 그대로다.
+- 2026-11-19: risk(8082)에도 `/actuator/prometheus` 를 열었다(Day 9 PR 14). 스프링 자동 지표만 나오며 collector 10종의 이름·라벨·칸은 그대로다.

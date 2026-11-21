@@ -21,6 +21,8 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
     // 상태 확인(/actuator/health). Day 7 Helm probe 가 쓴다
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // 지표: /actuator/prometheus 를 연다. 스프링 자동 지표(jvm_*, hikaricp_*, http_server_requests_*)만 나온다(docs/metrics.md)
+    implementation 'io.micrometer:micrometer-registry-prometheus'
     // OpenAPI 문서(/v3/api-docs)와 화면(/swagger-ui.html). Spring Boot 가 버전을 관리하지 않아 3.3 과 맞는 버전을 적는다
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 
