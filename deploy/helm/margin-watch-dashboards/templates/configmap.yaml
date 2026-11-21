@@ -1,0 +1,26 @@
+{{- /*
+  files/*.json 하나당 ConfigMap 하나(대시보드 하나). Grafana sidecar 가 라벨로 찾아 읽는다.
+  JSON 을 템플릿으로 해석하지 않고 .Files.Get 으로 문자열 그대로 넣는다(범례의 {{state}} 같은 Grafana 표기를 이스케이프하지 않아도 된다).
+  ConfigMap 이름: margin-watch-dashboard-<파일 이름에서 .json 뺀 것>. 한 ConfigMap 은 1MiB 가 한도인데 대시보드는 20KB 안팎이다.
+  네임스페이스는 릴리스 네임스페이스다(설치는 monitoring).
+*/ -}}
+{{- range $path, $_ := .Files.Glob "files/*.json" }}
+{{- $name := base $path | trimSuffix ".json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: margin-watch-dashboard-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{ $.Values.sidecar.label }}: {{ $.Values.sidecar.labelValue | quote }}
+    app.kubernetes.io/name: margin-watch-dashboards
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/part-of: margin-watch
+    {{- with $.Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
